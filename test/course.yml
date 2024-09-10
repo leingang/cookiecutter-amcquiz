@@ -1,0 +1,22 @@
+default_context:
+  full_name: "Matthew Leingang"
+  instructor_name: "Prof. Matthew Leingang"
+  email: "leingang@nyu.edu"
+  department_code: "MATH-UA"
+  course_number: "123"
+  section_number: "003+004"
+  term_season: "Fall"
+  term_year: "2024"
+  course_name: "MATH-UA 123.003+004 Calculus III"
+  term_name: "Fall 2024"
+  site_id: "384278"
+  number_copies: 39
+  bundle_name: calc3-fa24-docs
+# unused
+  localized_date_format: "%B %-d, %Y"
+  localized_datetime_format: "%B %-d, %Y, %-i:%M %p"
+# for cookiecutter
+abbreviations:
+  pp: https://github.com/audreyr/cookiecutter-pypackage.git
+  gh: https://github.com/{0}.git
+  bb: https://bitbucket.org/{0}

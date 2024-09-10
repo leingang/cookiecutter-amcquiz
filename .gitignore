@@ -1,1 +1,6 @@
 .DS_Store
+
+
+test/build
+test/q01
+__pycache__

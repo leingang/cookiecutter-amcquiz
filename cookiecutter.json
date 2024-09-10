@@ -4,11 +4,12 @@
     "exam_name" : "Quiz {{ cookiecutter.quiz_number }}",
     "exam_date" : "{% now 'local', '%Y-%m-%d' %}",
     "course_name" : "",
+    "instructor_name" : "",
     "term_name" : "",
     "site_id" : "",
     "number_copies" : 45,
     "has_versions" : "n",
     "versions_csv" : "{% if cookiecutter.has_versions == 'y' %}A,B,C{% endif %}",
     "bundle_name": "",
-    "_extensions": ["local_extensions.localize_date"]
+    "_extensions": ["local_extensions.localize_date", "local_extensions.embrace"]
 }

@@ -31,7 +31,6 @@
 %<*questions>
 \documentclass{{ "{" }}article{{ "}" }}
 \ProvidesFile
-\ProvidesFile
 %<*dtx>
 {{ (cookiecutter.exam_code + ".dtx") | embrace }}
 %</dtx>
@@ -46,9 +45,7 @@
 {%- endif %}
     [{% now 'local', '%Y/%m/%d' %} v0.0 {{cookiecutter.course_name}}, {{cookiecutter.term_name}}, {{cookiecutter.exam_name}}]
 \title{{cookiecutter.exam_name | embrace }}
-\author{{cookiecutter.instructor_name | replace('. ', '.~') | embrace }}
-\date{{cookiecutter.exam_date | localize_date | embrace }}
-\course{{ cookiecutter.course_name | embrace }}
+\author{{ cookiecutter.course_name | embrace }}
 {% raw %}
 \usepackage[insidebox
 %<solutions>,answers
