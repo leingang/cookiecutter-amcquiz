@@ -1,0 +1,14 @@
+{
+    "quiz_number" : 1,
+    "exam_code" : "{{ 'q%02d'|format(cookiecutter.quiz_number|int) }}",
+    "exam_name" : "Quiz {{ cookiecutter.quiz_number }}",
+    "exam_date" : "{% now 'local', '%Y-%m-%d' %}",
+    "course_name" : "",
+    "term_name" : "",
+    "site_id" : "",
+    "number_copies" : 45,
+    "has_versions" : "n",
+    "versions_csv" : "{% if cookiecutter.has_versions == 'y' %}A,B,C{% endif %}",
+    "bundle_name": "",
+    "_extensions": ["local_extensions.localize_date"]
+}

@@ -1,0 +1,4145 @@
+{# This is a Jinja2 template for a latex package.  Both use braces heavily! 
+    We use the raw ... endraw statements to surround untouched latex 
+    and we have to escape literal braces.
+#}
+{% raw %}
+\NeedsTeXFormat{LaTeX2e}
+\def\AMC@VERSION{69}
+\typeout{AMC version: \AMC@VERSION}
+\ProvidesPackage{automultiplechoice}[\AMC@VERSION]
+% \section{Implementation}
+%
+% This package uses the following other packages:
+%    \begin{macrocode}
+\RequirePackage{xcolor} % \fcolorbox to fill (or not) a box
+\RequirePackage{fancyhdr} % \pagestyle{empty}
+\RequirePackage{bophook} % \AtBeginPage
+\RequirePackage{xkeyval} % \setkeys
+\RequirePackage{rotating} % \rotatebox
+\RequirePackage{fancybox} % \boxput
+\RequirePackage{expl3}
+\RequirePackage{csvsimple} 
+\RequirePackage{environ}
+%   \end{macrocode}
+%
+% First, we read the options that can be given by AMC through the
+% |jobname-config.tex| file:
+%    \begin{macrocode}
+\InputIfFileExists{\jobname-config.tex}%
+{\message{Loading configuration file...^^J}}{}
+%    \end{macrocode}
+% 
+% \begin{macro}{\AMC@amclog}\begin{macro}{\AMCmessage}
+%   Informations about questions and choices will be logged to a file
+%   with extension |amc|, to be parsed later. Macro |\AMC@amclog|
+%   writes to this file.
+%    \begin{macrocode}
+\newwrite\AMC@logfile
+\immediate\openout\AMC@logfile=\jobname.amc
+\def\AMC@amclog#1{\immediate\write\AMC@logfile{#1}}
+\def\AMCmessage#1{\AMC@amclog{\string\message{#1}}}
+%    \end{macrocode}\end{macro}\end{macro}
+%
+% \begin{macro}{\AMC@LR}
+%   Colours management can be faulty in right-to-left mode: in these
+%   situations, we will make use of |\LR| from package \textsf{bidi} to
+%   get back to left-to-right mode. |\AMC@LR| is |\LR| if \textsf{bidi}
+%   is loaded.
+%    \begin{macrocode}
+\AtBeginDocument{\@ifpackageloaded{bidi}{%
+  \PackageInfo{automultiplechoice}{Package bidi loaded: using LR for boxes.}%
+  \let\AMC@LR=\LR}%
+{\let\AMC@LR=\relax}}%
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsection{Variables}
+%
+% Counters and boolean variables defined here are internal and should
+% not be modified by the user.
+%
+% The package defines the following counters:
+% \begin{description}
+% \item |\AMCload@counter| number of choices already loaded for
+%   current question.
+% \item |\AMCid@quest| current question ID number (see section~\ref{s:keyid}).
+% \item |\AMCid@etud| current student sheet number.
+% \item |\AMCid@etudstart| starting student sheet number of the
+%   current |onecopy| bloc.
+% \item |\AMCid@check| current page checking number.
+% \item |\AMCid@etudfin| last student sheet number for the exam.
+% \item |\AMCnum@copies| number of exam sheets to produce.
+% \end{description}
+%
+% It also defines the following switches:
+% \begin{description}
+% \item |\ifAMC@ordre| if choices are never to be shuffled. 
+% \item |\ifAMC@shuffleG| if groups shuffling is allowed.
+% \item |\ifAMC@fullGroups| if groups are always fully inserted by
+%   |\insertgroup| and fully copied by |\copygroup|, irrespective to
+%   the optional parameter.
+% \item |\ifAMC@correchead| if some correction header is to be printed
+%   at the beginning.
+% \item |\ifAMC@affichekeys| if questions keys are to be printed.
+% \item |\ifAMC@keysline| if questions keys should be printed on a
+%   single line before the question text.
+% \item |\ifAMC@correc| if correct choices are to be checked on the
+%   produced document.
+% \item |\ifAMC@qbloc| if questions are to be included in \LaTeX{}
+%   boxes (so that they can't be splitted on two different pages).
+% \item |\ifAMC@asqbloc| if questions are to be included in \LaTeX{}
+%   boxes in the answer sheet (so that they can't be splitted on two
+%   different pages).
+% \item |\ifAMC@rbloc| if answers are to be included in \LaTeX{} boxes
+%   (so that they can't be splitted on two different columns for
+%   example).
+% \item |\ifAMC@textPos| if questions and answers positions are to be logged.
+% \item |\ifAMC@extractOnly| if the PDF is only built to extract questions and answers images.
+% \item |\ifAMCcomplete@multi| if a choice
+%   ``\makeatletter\AMC@loc@none\makeatother'' is to be added to every
+%   multiple question.
+% \item |\ifAMCquestionNumber| if AMC should step up the question
+%   number for each new question.
+% \item |\ifAMC@calibration| if this \LaTeX{} run is used to get page layouts.
+% \item |\ifAMC@plain| if \textsf{automultiplechoice} won't try to load
+%   useful packages (\textsf{etex}, \textsf{environ}) that extend
+%   \textsf{automultiplechoice} capabilities.
+% \item |\ifAMCune@bonne| if there is at least one correct answer for the current question.
+% \item |\ifAMCtype@multi| if the current question is a multiple question.
+% \item |\ifAMC@watermark| if the document is a draft, not to be used for exam.
+% \item |\ifAMC@ensemble| if answers are to be given on a separate
+%   answers sheet.
+% \item |\ifAMC@inside@box| if a letter or digit is to be printed
+%   inside all boxes.
+% \item |\ifAMC@inside@digit| if digits are to be written inside
+%   boxes instead of letters (when using a separate answer sheet for
+%   example).
+% \item |\ifAMC@outside@box| if labels for boxes are to be printed outside
+%   the box on the answer sheet.
+% \item |\ifAMCformulaire@dedans| is true for questions inside
+%   separate answer sheet.
+% \item |\ifAMC@zoneformulaire| is true for codes (made by |\AMCcodeGrid|)
+%   inside separate answer sheet.
+% \item |\ifAMC@pagelayout| is true if the AMC page layout, with signs
+%   for scan analysis, is to be used.
+% \item |\ifAMC@postcorrect| corresponds to the use of the
+%   |postcorrect| package option.
+% \item |\ifAMC@automarks| corresponds to the use of the
+%   |automarks| package option.
+% \item |\ifAMC@invisible| is true is the DVI/PDF output is not
+%   important (used for example for scoring strategy extraction).
+% \item |\ifAMC@pdfform| is true if the output is a PDF form. This PDF
+%   will not be printed but will be filled by the students with a PDF
+%   reader and sent back to the teacher.
+% \end{description}
+%    \begin{macrocode}
+\newcount\AMCload@counter
+\newcount\AMCid@quest\AMCid@quest=-1
+\newcount\AMCid@check
+\newcount\AMCid@etud\AMCid@etud=0
+\newcount\AMCid@etudstart\AMCid@etudstart=0
+\newcount\AMCid@etudfin
+\newcount\AMCnum@copies
+%    \end{macrocode}
+%    \begin{macrocode}
+\newif\ifAMC@ordre\AMC@ordrefalse
+\newif\ifAMC@shuffleG\AMC@shuffleGtrue
+\newif\ifAMC@fullGroups\AMC@fullGroupsfalse
+\newif\ifAMC@correchead\AMC@correcheadfalse
+\newif\ifAMC@affichekeys\AMC@affichekeysfalse
+\newif\ifAMC@keysline\AMC@keyslinefalse
+\newif\ifAMC@correc\AMC@correcfalse
+\newif\ifAMC@textPos\AMC@textPosfalse
+\newif\ifAMC@extractOnly\AMC@extractOnlyfalse
+\newif\ifAMC@qbloc\AMC@qblocfalse
+\newif\ifAMC@asqbloc\AMC@asqblocfalse
+\newif\ifAMC@rbloc\AMC@rblocfalse
+\newif\ifAMCcomplete@multi\AMCcomplete@multifalse
+\newif\ifAMCquestionNumber\AMCquestionNumbertrue
+\newif\ifAMC@calibration\AMC@calibrationfalse
+\newif\ifAMC@catalog\AMC@catalogfalse
+\newif\ifAMC@plain\AMC@plainfalse
+\newif\ifAMCune@bonne
+\newif\ifAMCtype@multi
+\newif\ifAMC@watermark\AMC@watermarktrue
+\newif\ifAMC@inside@box\AMC@inside@boxfalse
+\newif\ifAMC@outside@box\AMC@outside@boxfalse
+\newif\ifAMC@ensemble\AMC@ensemblefalse
+\newif\ifAMC@inside@digit\AMC@inside@digitfalse
+\newif\ifAMCformulaire@dedans\AMCformulaire@dedansfalse
+\newif\ifAMC@zoneformulaire
+\newif\ifAMC@pagelayout\AMC@pagelayouttrue
+\newif\ifAMC@postcorrect\AMC@postcorrectfalse
+\newif\ifAMC@automarks\AMC@automarksfalse
+\newif\ifAMC@invisible\AMC@invisiblefalse
+\newif\ifAMC@pdfform\AMC@pdfformfalse
+\let\AMCcompleteMulti=\AMCcomplete@multitrue
+\let\AMCnoCompleteMulti=\AMCcomplete@multifalse
+%    \end{macrocode}
+%
+% \begin{macro}{\AMCid@name}
+%   The package also defines command |\AMCid@name| to be the current
+%   question identifier key.
+%    \begin{macrocode}
+\def\AMCid@name{}
+%    \end{macrocode}\end{macro}
+%
+% \subsection{Dimensions}
+%
+% \begin{macro}{\AMCformVSpace}\begin{macro}{\AMCformHSpace}
+% \begin{macro}{\AMCinterIrep}\begin{macro}{\AMCinterBrep}
+% The following dimensions can be modified by the user to adjust
+% questions formatting:
+% \begin{description}
+% \item |\AMCformVSpace| is the amount of vertical space between two
+%   questions in a separate answer sheet.
+% \item |\AMCformHSpace| is the amount of horizontal space between two
+%   answers boxes in a separate answer sheet.
+% \item |\AMCinterIrep| is the amount of vertical space to be added
+%   between two answers.
+% \item |\AMCinterBrep| is the amount of vertical space between two
+%   boxed answers (see |\AMCBoxedAnswers| and |\ifAMC@rbloc|).
+% \item |\AMCinterIquest| is the amount of vertical space left after a
+%   question, in standard mode (without package option |box|).
+% \item |\AMCinterBquest| is the amount of vertical space left after a
+%   question, in 'boxed' mode (with package option |box|).
+% \item |\AMCpostOquest| is the amount of vertical space left after an
+%   open question.
+% \end{description}
+%    \begin{macrocode}
+\newdimen\AMCformVSpace\AMCformVSpace=1.2ex
+\newdimen\AMCformHSpace\AMCformHSpace=.3em
+\newdimen\AMCinterIrep\AMCinterIrep=\z@
+\newdimen\AMCinterBrep\AMCinterBrep=.5ex
+\newdimen\AMCinterIquest\AMCinterIquest=\z@
+\newdimen\AMCinterBquest\AMCinterBquest=3ex
+\newdimen\AMCpostOquest\AMCpostOquest=7mm
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}\end{macro}
+%
+% \subsection{Human readable sheet ID position}
+%
+% \begin{macro}{\AMCidsPosition}
+% The position of the human readable sheet ID, near the corresponding
+% binary boxes, is set with the |\AMCidsPosition| command, in the form
+% |\AMCidsPosition{pos=|\meta{position}|,width=|\meta{width}|,height=|\meta{height}|}|,
+% where \meta{position} is one of |side| (default), |top| and |none|,
+% \meta{width} is the width of the box enclosing the ID (default value is
+% |4cm|), and \meta{height} is the height of the box enclosing the ID
+% (default value is |3ex|).
+%
+%    \begin{macrocode}
+\newif\ifAMCids@top
+\newif\ifAMCids@side
+\newdimen\AMCids@width
+\newdimen\AMCids@height
+\define@choicekey*{AMCids}{pos}[\AMCidsVar\AMCidsVarN]{none,top,side}{%
+  \ifcase\AMCidsVarN\relax
+    \AMCids@topfalse\AMCids@sidefalse
+  \or
+    \AMCids@toptrue\AMCids@sidefalse
+  \or
+    \AMCids@topfalse\AMCids@sidetrue
+  \fi
+}
+\define@key{AMCids}{width}{\AMCids@width=#1}
+\define@key{AMCids}{height}{\AMCids@height=#1}
+\def\AMCidsPosition#1{\setkeys{AMCids}{#1}}
+\AMCidsPosition{pos=side,width=4cm,height=3ex}
+%    \end{macrocode}\end{macro}
+% 
+% \subsection{Localisation}
+%
+% In this section, some localised strings or commands are defined, for
+% English, French ans Spanish languages.
+% \begin{macro}{\AMCtext}
+%   To modify these texts, you can use command |\AMCtext|. For
+%   example, |\AMCtext{draft}|\marg{text} sets the text to be printed
+%   behind each page of a draft exam.
+%    \begin{macrocode}
+\def\AMCtext#1#2{\expandafter\def\csname AMC@loc@#1\endcsname{#2}}
+\def\AMClocalized#1{\csname AMC@loc@#1\endcsname}
+%    \end{macrocode}\end{macro}
+% \subsubsection{English}
+% Text indicating draft exams:
+%    \begin{macrocode}
+\def\AMC@loc@draft{DRAFT}
+%    \end{macrocode}
+% Message at page bottom when compiled out of AMC gui:
+%    \begin{macrocode}
+\def\AMC@loc@message{For your examination, preferably print
+  documents compiled from auto-multiple-choice.}
+%    \end{macrocode}
+% Annoucing a question in a separate sheet (parameter |#1| is the
+% question number):
+%    \begin{macrocode}
+\def\AMC@loc@qf#1{\textbf{Question #1:}}
+%    \end{macrocode}
+% Annoucing a question (parameter |#1| is the question number and
+% pamareter |#2| can be the multiple question symbol, or be empty):
+%    \begin{macrocode}
+\def\AMC@loc@q#1#2{\textbf{Question #1} #2}
+%    \end{macrocode}
+% Headers for corrected version and catalog:
+%    \begin{macrocode}
+\def\AMC@loc@corrected{Corrected}
+\def\AMC@loc@catalog{Catalog}
+%    \end{macrocode}
+% Localization text for Explanation
+%    \begin{macrocode}
+\def\AMC@loc@explain{\textit{\textbf{Explanation: }}}
+%    \end{macrocode}
+% Last choice added at the end for multiple questions when option
+% |completemulti| is used:
+%    \begin{macrocode}
+\def\AMC@loc@none{None of these answers are correct.}
+%    \end{macrocode}
+% Word for 'question', singular and plural forms:
+%    \begin{macrocode}
+\def\AMC@loc@question{question}
+\def\AMC@loc@questions{questions}
+%    \end{macrocode}
+% Default text to write in the students' name box:
+%    \begin{macrocode}
+\def\AMC@loc@namesurname{Name and surname:}
+%    \end{macrocode}
+%
+% \subsubsection{Catalan}
+%
+% Catalan localisation is called with option |lang=CA|.
+%    \begin{macrocode}
+\def\AMC@loc@CA{
+  \def\AMC@loc@draft{PROJECTE}
+  \def\AMC@loc@message{Pel vostre examen, imprimiu preferiblement
+    els documents compilats amb l'ajuda de auto-multiple-choice.}
+  \def\AMC@loc@qf##1{\textbf{Pregunta ##1 :}}
+  \def\AMC@loc@q##1##2{\textbf{Pregunta ##1} ##2}
+  \def\AMC@loc@corrected{Correcci\'o}
+  \def\AMC@loc@catalog{Cat\`aleg}
+  \def\AMC@loc@explain{\textit{\textbf{Explicaci\'o : }}}
+  \def\AMC@loc@none{Cap de les respostes \'es correcte.}
+  \def\AMC@loc@question{pregunta}
+  \def\AMC@loc@questions{preguntes}
+  \def\AMC@loc@namesurname{Nom i cognoms:}
+}
+%    \end{macrocode}
+%
+% \subsubsection{Dutch}
+%
+% Dutch localisation is called with option |lang=NL|.
+%    \begin{macrocode}
+\def\AMC@loc@NL{
+  \def\AMC@loc@draft{Ontwerp}
+  \def\AMC@loc@message{Gebruik bij uw proefwerk bij voorkeur die
+    documenten welke door auto-multiple-choice zijn aangemaakt.}
+  \def\AMC@loc@qf##1{\textbf{Vraag ##1 :}}
+  \def\AMC@loc@q##1##2{\textbf{Vraag ##1} ##2}
+  \def\AMC@loc@corrected{Correctie}
+  \def\AMC@loc@catalog{Catalogus}
+  \def\AMC@loc@none{Geen van de antwoorden is juist.}
+  \def\AMC@loc@question{vraag}
+  \def\AMC@loc@questions{vragen}
+  \def\AMC@loc@namesurname{Achternaam en voornaam:}
+}
+%    \end{macrocode}
+%
+% \subsubsection{French}
+%
+% French localisation is called with option |francais|, or |lang=FR|.
+%    \begin{macrocode}
+\def\AMC@loc@FR{
+  \def\AMC@loc@draft{PROJET}
+  \def\AMC@loc@message{Pour votre examen, imprimez de pr\'ef\'erence
+    les documents compil\'es \`a l'aide de auto-multiple-choice.}
+  \def\AMC@loc@qf##1{\textbf{Question ##1 :}}
+  \def\AMC@loc@q##1##2{\textbf{Question ##1} ##2}
+  \def\AMC@loc@corrected{Correction}
+  \def\AMC@loc@catalog{Catalogue}
+  \def\AMC@loc@explain{\textit{\textbf{Explication : }}}
+  \def\AMC@loc@none{Aucune de ces r\'eponses n'est correcte.}
+  \def\AMC@loc@question{question}
+  \def\AMC@loc@questions{questions}
+  \def\AMC@loc@namesurname{Nom et pr\'enom :}
+}
+%    \end{macrocode}
+%
+% \subsubsection{German}
+%
+% German localisation is called with option |lang=DE|.
+%    \begin{macrocode}
+\def\AMC@loc@DE{
+  \def\AMC@loc@draft{ENTWURF}
+  \def\AMC@loc@message{Benutzen Sie f\"ur Ihre Pr\"ufung bevorzugt Dokumente die mit
+    auto-multiple-choice erstellt wurden.}
+  \def\AMC@loc@qf##1{\textbf{Frage ##1 :}}
+  \def\AMC@loc@q##1##2{\textbf{Frage ##1} ##2}
+  \def\AMC@loc@corrected{Korrektur}
+  \def\AMC@loc@catalog{Katalog}
+  \def\AMC@loc@explain{\textit{\textbf{Erkl\"arung : }}}
+  \def\AMC@loc@none{Keine dieser Antworten ist korrekt.}
+  \def\AMC@loc@question{Frage}
+  \def\AMC@loc@questions{Fragen}
+  \def\AMC@loc@namesurname{Vor- und Nachname:}
+}
+%    \end{macrocode}
+% 
+% \subsubsection{Italian}
+%
+% Italian localisation is called with option |lang=IT|.
+%    \begin{macrocode}
+\def\AMC@loc@IT{
+  \def\AMC@loc@draft{BOZZA}
+  \def\AMC@loc@message{Per l'esame, \`e preferibile stampare i documenti
+     a partire da auto-multiple-choice.}
+  \def\AMC@loc@qf##1{\textbf{Domanda ##1:}}
+  \def\AMC@loc@q##1##2{\textbf{Domanda ##1} ##2}
+  \def\AMC@loc@corrected{Correzione}
+  \def\AMC@loc@catalog{Catalogo}
+  \def\AMC@loc@none{Nessuna risposta \`e giusta.}
+  \def\AMC@loc@question{domanda}
+  \def\AMC@loc@questions{domande}
+  \def\AMC@loc@namesurname{Nome e cognome:}
+}
+%    \end{macrocode}
+% 
+% \subsubsection{Norwegian}
+%
+% Norwegian localisation is called with option |lang=NO|.
+%    \begin{macrocode}
+\def\AMC@loc@NO{
+  \def\AMC@loc@draft{UTKAST}
+  \def\AMC@loc@message{Det anbefales {\aa} skrive ut dokumentet
+  for gjennomgang \\direkte fra auto-multiple-choice.}
+  \def\AMC@loc@qf##1{\textbf{Oppgave ##1 :}}
+  \def\AMC@loc@q##1##2{\textbf{Oppgave ##1} ##2}
+  \def\AMC@loc@corrected{Rettet}
+  \def\AMC@loc@catalog{Katalog}
+  \def\AMC@loc@none{Ingen svar er riktige.}
+  \def\AMC@loc@question{oppgave}
+  \def\AMC@loc@questions{oppgave}
+  \def\AMC@loc@namesurname{Etternavn og fornavn:}
+}
+%    \end{macrocode}
+% 
+% \subsubsection{Portuguese}
+%
+% Portuguese localisation is called with option |lang=PT|.
+%    \begin{macrocode}
+\def\AMC@loc@PT{
+  \def\AMC@loc@draft{RASCUNHO}
+  \def\AMC@loc@message{Para o seu exame, use preferencialmente documentos compilados do auto-multiple-choice.}
+  \def\AMC@loc@qf##1{\textbf{Quest\~ao ##1:}}
+  \def\AMC@loc@q##1##2{\textbf{Quest\~ao ##1} ##2}
+  \def\AMC@loc@corrected{Corrigido}
+  \def\AMC@loc@catalog{Cat\'alogo}
+  \def\AMC@loc@explain{\textit{\textbf{Justifique: }}}
+  \def\AMC@loc@none{Nenhuma das respostas apresentadas est\'a correta.}
+  \def\AMC@loc@question{Quest\~ao}
+  \def\AMC@loc@questions{Quest\~oes}
+  \def\AMC@loc@namesurname{Nome e apelido:}
+}
+%    \end{macrocode}
+% 
+% \subsubsection{Spanish}
+%
+% Spanish localisation is called with option |lang=ES|.
+%    \begin{macrocode}
+\def\AMC@loc@ES{
+  \def\AMC@loc@draft{BORRADOR}
+  \def\AMC@loc@message{Para revisi\'on, preferentemente imprimir documentos compilados
+    desde auto-multiple-choice.}
+  \def\AMC@loc@qf##1{\textbf{Pregunta ##1 :}}
+  \def\AMC@loc@q##1##2{\textbf{Pregunta ##1} ##2}
+  \def\AMC@loc@corrected{Correcci\'on}
+  \def\AMC@loc@catalog{Cat\'alogo}
+  \def\AMC@loc@none{Ninguna de estas preguntas son correctas.}
+  \def\AMC@loc@question{pregunta}
+  \def\AMC@loc@questions{preguntas}
+  \def\AMC@loc@namesurname{Nombre y apellidos:}
+}
+%    \end{macrocode}
+% 
+% \subsubsection{Japanese}
+%
+% Japanese localisation is called with option |lang=JA|. It includes UTF8 encoded
+% Japanese characters which are shown as $\diamond$ here (look at the |.sty| file to see them).
+%    \begin{macrocode}
+\def\AMC@loc@JA{
+  \def\AMC@loc@draft{ドラフト}
+  \def\AMC@loc@message{試験の実施には、auto-multiple-choiceでコンパイルされた文書を印刷してください。}
+  \def\AMC@loc@qf##1{\textbf{問##1:}}
+  \def\AMC@loc@q##1##2{\textbf{問##1} ##2}
+  \def\AMC@loc@corrected{模範解答}
+  \def\AMC@loc@catalog{問題カタログ}
+  \def\AMC@loc@explain{\textit{\textbf{解説: }}}
+  \def\AMC@loc@none{該当なし。}
+  \def\AMC@loc@question{問}
+  \def\AMC@loc@questions{問}
+}
+%    \end{macrocode}
+% 
+% \subsubsection{Other languages}
+%
+% Other languages can be integrated to \textsf{automultiplechoice}
+% package upon request to the author.
+%
+% \subsection{Interaction with other packages}
+% \subsubsection{cleveref}
+%
+% For references to questions:
+%    \begin{macrocode}
+\AtBeginDocument{\@ifpackageloaded{cleveref}{%
+    \message{AMC/cleveref integration loaded^^J}%
+    \crefalias{AMCquestionaff}{question}%
+    \crefname{question}{\AMC@loc@question}{\AMC@loc@questions}%
+}{}}%
+%    \end{macrocode}
+% 
+% \subsection{Random}
+% \subsubsection{Random pseudo-generator}
+% The package uses the pseudo-random bit generator from
+% \emph{TuGBoat} 1994, vol~15:1:
+%    \begin{macrocode}
+\ifx\AMC@SR\undefined\newcount\AMC@SR\fi
+\providecommand\AMC@SRconst{2097152}
+\providecommand\AMC@SRset[1]{\global\AMC@SR#1 \ignorespaces}
+\providecommand\AMC@SRadvance{%
+  \begingroup%
+    \ifnum\AMC@SR<\AMC@SRconst\relax\AMC@SR@count\z@\else\AMC@SR@count\@ne\fi%
+    \ifodd\AMC@SR\advance\AMC@SR@count\@ne\fi%
+    \global\divide\AMC@SR\tw@%
+    \ifodd\AMC@SR@count\global\advance\AMC@SR\AMC@SRconst\relax\fi%
+  \endgroup}
+\providecommand\AMC@SRbit{\AMC@SRadvance\ifodd\AMC@SR1\else0\fi}
+\providecommand\AMC@SRtest[2]{\AMC@SRadvance%
+  \ifodd\AMC@SR#2\else#1\fi\ignorespaces}
+\providecommand\AMC@SRvalue{\number\AMC@SR}
+%    \end{macrocode}
+% \begin{macro}{\AMCrandomseed}
+%   The seed of this generator is set to 1515, but another value can
+%   be given using the command |\AMCrandomseed|\marg{seed}.
+%    \begin{macrocode}
+\AMC@SRset{1515}
+\def\AMCrandomseed#1{\AMC@SRset{#1}}
+%    \end{macrocode}\end{macro}
+% \subsubsection{Uniform random deviates}
+% \begin{macro}{\AMC@SRnextByte}\begin{macro}{\AMC@SRmax}
+%     This generator is used to build first a 20-bit uniform integer
+%     generator (macro |\AMC@SRnextByte|). Then, using modulo, a
+%     (nearly) uniform generator on $\{0,\ldots,n-1\}$ is built:
+%     command |\AMC@SRmax{|$n$|}| puts in |\AMC@SR@count| the random
+%     deviate.
+%    \begin{macrocode}
+\newcount\AMC@SR@count
+\def\AMC@SR@time{\AMC@SRset{\time}}
+\newcount\AMC@SRnum
+\def\AMC@SRnextByte{\AMC@SRnum=\z@%
+  \AMC@SR@count=20%
+  \loop\multiply\AMC@SRnum\tw@%
+     \AMC@SRtest{\advance\AMC@SRnum\@ne}{}%
+  \ifnum\AMC@SR@count>\@ne\advance\AMC@SR@count\m@ne\repeat%
+}
+\newcommand\AMC@SRmax[1]{\AMC@SRnextByte%
+  \AMC@SR@count=\AMC@SRnum%
+  \divide\AMC@SR@count by #1\relax%
+  \multiply\AMC@SR@count by #1\relax%
+  \advance\AMC@SRnum by -\AMC@SR@count%
+}
+%    \end{macrocode}\end{macro}\end{macro}
+% \subsubsection{Tokens shuffling}
+% \begin{macro}{\AMCsw@p}\begin{macro}{\AMC@shuffletoks}
+%     The package defines the macro |\AMCsw@p| to swap the values of
+%     two token registers given as parameters.
+%
+%     After defining $n$ token registers |\foo@i|, |\foo@ii|,
+%     |\foo@iii|, |\foo@iv| and so on, you can shuffle them using
+%     |\AMC@shuffletoks|\oarg{a}\marg{n}\marg{foo}. With optional
+%     argument \meta{a}, registers are shuffled from number \meta{a}
+%     to \meta{n} (default value for \meta{a} is 1).
+%    \begin{macrocode}
+\newcount\AMC@sti
+\newcount\AMC@stil
+\newtoks\AMCsw@p@
+\newcommand\AMCsw@p[2]{%
+  \global\AMCsw@p@=#1%
+  \global#1=#2%
+  \global#2=\AMCsw@p@}
+\newcommand{\AMC@shuffletoks}[3][\@ne]{%
+  \AMC@sti=#2\relax%
+  \AMC@stil=#2\relax%
+  \advance\AMC@stil\@ne%
+  \advance\AMC@stil -#1\relax%
+  \@whilenum\AMC@sti>#1\do{%
+    \AMC@SRmax{\AMC@stil}\advance\AMC@SRnum #1\relax%
+    \AMCsw@p{\csname #3\romannumeral\AMC@SRnum\endcsname}%
+            {\csname #3\romannumeral\AMC@sti\endcsname}%
+    \advance\AMC@sti\m@ne\relax%
+    \advance\AMC@stil\m@ne\relax%
+  }}
+%    \end{macrocode}\end{macro}\end{macro}
+%
+% \subsection{Keys numbering}\label{s:keyid}
+%
+% \begin{macro}{\AMC@unnumero}\begin{macro}{\AMC@affecte}
+%   This package allocates a unique integer ID to each question key
+%   from the questionnary. The counter |\AMC@numerotation| keeps track
+%   of the number of keys which already had an ID. Command
+%   |\AMC@definitnumero{|$n$|}{key}| allocates ID $n$ to the key
+%   |key|.  Command |\AMC@prepare{key}| looks if an ID had already
+%   been associated to |key|, and, if not, makes a new ID allocation
+%   for |key|.  Command |\AMC@unnumero{key}| returns the ID associated
+%   with |key| (creating one if necessary). Command
+%   |\AMC@affecte{key}{\cnt}| give to counter |\cnt| the value of the
+%   ID associated to |key| (creating one if necessary).
+%   \begin{macrocode}
+\newcount\AMC@numerotation\AMC@numerotation=\z@%
+\def\AMC@definitnumero#1#2{\AMCmessage{NUM=#1=#2}%
+  \expandafter\global\expandafter\def\csname AMC@numtab@#2\endcsname{#1}}
+\def\AMC@prepare#1{\expandafter\ifx\csname AMC@numtab@#1\endcsname\relax%
+  \global\advance\AMC@numerotation\@ne%
+  \expandafter\AMC@definitnumero\expandafter{\the\AMC@numerotation}{#1}\fi}
+\def\AMC@unnumero#1{\AMC@prepare{#1}\csname AMC@numtab@#1\endcsname}
+\def\AMC@affecte#1#2{\AMC@prepare{#1}\global#2=\csname AMC@numtab@#1\endcsname}
+%    \end{macrocode}\end{macro}\end{macro}
+%
+% \subsection{Boxes}
+% \subsubsection{Character logging}
+%
+% \begin{macro}{\AMC@logchar}
+%   The command |\AMC@logchar|\marg{char}\marg{key} logs the
+%   character written in the box referenced as \meta{key} in the |.amc|
+%   file. This is used in catalog mode, to get understandable
+%   references to answers from the statistics tables of the ODS
+%   export.
+%
+%    \begin{macrocode}
+\def\AMC@logchar#1#2{%
+  \protected@write\AMC@logfile{}{%
+    \string\answer%
+    {\the\AMCid@etud/\thepage:#2}%
+    {#1}}%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsubsection{Position logging}
+%
+% \begin{macro}{\AMC@tracebox}\begin{macro}{\AMC@pagepos}
+%     Command |\AMC@tracebox|\marg{trace}\marg{key}\marg{content} makes a
+%     \LaTeX{} box around \meta{content}, and, if \meta{trace} is not
+%     empty, logs to the |.xy| file informations to be able to compute
+%     exact location of this box on the page, attached to the box
+%     identification \meta{key}.
+%
+%   Command |\AMC@pagepos| logs page and page size informations at the
+%   beginning of each page.
+%
+%    \begin{macrocode}
+\def\AMC@shapename@{\ifAMC@invisible none\else\AMC@shapename\fi}
+\def\AMC@tracepos#1#2{%
+  \ifAMC@calibration\ifx\@empty#1\@empty\else%
+  \pdfsavepos\protected@write\AMC@XYFILE{}{%
+    \string\tracepos%
+    {\the\AMCid@etud/\thepage:#2}%
+    {\noexpand\number\pdflastxpos sp}%
+    {\noexpand\number\pdflastypos sp}%
+    {\AMC@shapename}}%
+  \fi\fi}
+\def\AMC@traceposx#1#2{%
+  \ifAMC@calibration\ifx\@empty#1\@empty\else%
+  \pdfsavepos\protected@write\AMC@XYFILE{}{%
+    \string\tracepos%
+    {\the\AMCid@etud/\thepage:#2}%
+    {\noexpand\number\pdflastxpos sp}%
+    {0sp}%
+    {\AMC@shapename}}%
+  \fi\fi}
+\def\AMC@traceposy#1#2{%
+  \ifAMC@calibration\ifx\@empty#1\@empty\else%
+  \pdfsavepos\protected@write\AMC@XYFILE{}{%
+    \string\tracepos%
+    {\the\AMCid@etud/\thepage:#2}%
+    {0sp}%
+    {\noexpand\number\pdflastypos sp}%
+    {\AMC@shapename}}%
+\fi\fi}
+\newcommand\AMC@tracebox[3]{%
+  \vbox{\AMC@traceposy{#1}{#2}%
+    \hbox{\AMC@traceposx{#1}{#2}#3\AMC@traceposx{#1}{#2}}%
+    \AMC@traceposy{#1}{#2}}}
+\def\AMC@pagepos{%
+  \ifAMC@calibration\protected@write\AMC@XYFILE{}{%
+    \string\page%
+    {\the\AMCid@etud/\thepage/\the\AMCid@check}%
+    {\the\paperwidth}{\the\paperheight}%
+    {\the\pdfpagewidth}{\the\pdfpageheight}}\fi}
+%    \end{macrocode}\end{macro}\end{macro}
+%
+% \begin{macro}{\AMCdontScan}\begin{macro}{\AMCdontAnnotate}
+% \begin{macro}{\AMCreTick}
+%     The commands |\AMCdontScan|, |\AMCdontAnnotate| and |\AMCreTick| write
+%     into the |xy| file instructions related to the current question.
+%    \begin{macrocode}
+\newcommand{\AMCdontScan}{\ifAMC@calibration\immediate\write\AMC@XYFILE{\string\dontscan{\the\AMCid@etud,\the\AMCid@quest}}\fi}
+\newcommand{\AMCdontAnnotate}{\ifAMC@calibration\immediate\write\AMC@XYFILE{\string\dontannotate{\the\AMCid@etud,\the\AMCid@quest}}\fi}
+\newcommand{\AMCreTick}{\ifAMC@calibration\immediate\write\AMC@XYFILE{\string\retick{\the\AMCid@etud,\the\AMCid@quest}}\fi}
+%%    \end{macrocode}
+% \end{macro}
+% \end{macro}
+% \end{macro}
+%
+% \begin{macro}{\AMC@tracechar}
+%   The macro
+%   |\AMC@tracechar|\marg{char}\marg{unused}\marg{trace}\marg{key} is
+%   used to log (for further processing with AMC), into to |.xy| file,
+%   the character used to identify the box.
+%
+%    \begin{macrocode}
+\newcommand\AMC@tracechar[4]{%
+  \ifAMC@calibration\ifx\@empty#3\@empty\else%
+    \protected@write\AMC@XYFILE{}{%
+      \string\boxchar{\the\AMCid@etud/\thepage:#4}{#1}%
+    }%
+  \fi\fi%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \begin{environment}{amcxyfile}
+%   The following lines defines an environment to tag positions
+%   outputs for a particular part of the document. This is used mainly
+%   for documentation or testing.
+%
+%    \begin{macrocode}
+\newenvironment{amcxyfile}[1]{%
+  \protected@write\AMC@XYFILE{}{\string\xyopen{#1}}%
+}{%
+  \protected@write\AMC@XYFILE{}{\string\xyclose{}}%
+}
+%    \end{macrocode}\end{environment}
+%
+% \begin{macro}{\AMCzone}
+% The |\AMCzone|\oarg{flags}\marg{zone name}\marg{zone content} is a simple call
+% to |\AMC@tracebox|:
+%    \begin{macrocode}
+\newcommand{\AMCzone}[3][]{\AMC@tracebox{1}{__zone:#1:#2}{#3}}
+%    \end{macrocode}
+% \end{macro}
+%
+% \begin{macro}{\namefield}
+% The |\namefield|\marg{name field content} is a simple call to |\AMCzone|:
+%    \begin{macrocode}
+\newcommand{\namefield}[2][id]{\AMCzone[#1]{__n}{#2}}
+%    \end{macrocode}\end{macro}
+% It is used to enclose the page region where students are to write
+% their names, so as te retreive it easily from the scans.
+%
+% \begin{macro}{\namefielddots}
+%   The command |\namefielddots| can be used to fill a line with dots
+%   (printed sheets) or use a text field in PDF forms:
+%    \begin{macrocode}
+\newcommand{\namefielddots}{%
+  \noindent%
+  \ifAMC@pdfform%
+    \hspace*{\fill}%
+    \TextField[name={\the\AMCid@etud:namefield},width=.95\linewidth,bordercolor=0 0 0]{}%
+    \hspace*{\fill}
+  \else%
+    \dotfill
+  \fi%
+}
+%    \end{macrocode}\end{macro}
+%
+% As an example,
+%
+% \subsubsection{Boxes to be checked by students}
+%
+% \begin{macro}{\AMC@answerBox@}
+%   There are two styles for boxes to be checked by the students. The
+%   first one is an empty box, printed beside the answer. The sencond
+%   is a box with a character in it. It is mainly used when answers
+%   are to be given on a separate answer sheet.
+%
+%   These boxes can be drawn using command
+%   |\AMC@answerBox@|\marg{char}\marg{answer}\marg{trace}\marg{key}:
+%   \meta{char} is the character to print inside the box, \meta{trace}
+%   is non-empty if you want to log the box position in the |.xy|
+%   file, \meta{key} is the box identification, and \meta{answer} is
+%   an answer to be written in the box (or |\AMC@checkedbox| for
+%   filling the box).
+%
+%   Depending onthe required shape for the boxes, the corresponding
+%   \begin{center}
+%   |\AMC@shape@xxx|\marg{char}\marg{answer}\marg{trace}\marg{key}
+% \end{center}
+% \noindent command is used.
+%
+% \begin{itemize}
+% \item
+% \begin{amcxyfile}{xy1}
+% |\AMC@answerBox@{K}{}{1}{test}| produce the box
+% \makeatletter\AMC@answerBox{K}{}{1}{test}\makeatother, writing the
+% lines in the |.xy| file shown in section~\ref{a:boxed}.
+% \end{amcxyfile}
+% \item |\AMC@answerBox@{K}{\AMC@checkedbox}{}{}| produces {\makeatletter\AMC@answerBox@{K}{\AMC@checkedbox}{}{}\makeatother}
+% \item |\AMC@answerBox@{}{8}{}{}| produces {\makeatletter\AMC@answerBox@{}{8}{}{}\makeatother}
+% \item |\AMC@answerBox@{K}{8}{1}{testb}| produces {\makeatletter\AMCboxStyle{shape=oval,color=red}\AMC@answerBox@{K}{8}{1}{testb}\makeatother} with |\AMCboxStyle{shape=oval,color=red}|
+% \end{itemize}
+%    \begin{macrocode}
+\def\AMC@checkedbox{}
+\let\AMC@new@savebox=\newsavebox
+\let\AMC@save@box=\savebox
+\let\AMC@use@box=\usebox
+\newif\ifAMC@draw@cross
+%    \end{macrocode}
+% The |\AMC@smashcentered|\marg{text} command shows the \meta{text}
+% centered at point.
+%    \begin{macrocode}
+\newbox\AMC@smashbox
+\newdimen\AMC@smashboxheight
+\newcommand{\AMC@smashcentered}[1]{{%
+    \setbox\AMC@smashbox\hbox{#1}%
+    \AMC@smashboxheight=\ht\AMC@smashbox%
+    \advance\AMC@smashboxheight by \dp\AMC@smashbox%
+    \vfuzz=\AMC@smashboxheight\hfuzz=\wd\AMC@smashbox%
+    \hspace*{-.5\wd\AMC@smashbox}\hbox to .5\wd\AMC@smashbox{%
+      \vbox to 0pt{%
+        \vspace*{-.5\AMC@smashboxheight}\vbox to .5\AMC@smashboxheight{%
+          \box\AMC@smashbox}}}%
+  }}
+%    \end{macrocode}
+% |\AMC@setcolors@|\marg{trace}\marg{answer} sets colours
+% |\AMC@boxcolor@| and |\AMC@fillcolor@| according to its
+% arguments. It also sets the |\ifAMC@draw@cross| switch if AMC should
+% draw a cross instead of filling the box.
+%    \begin{macrocode}
+\newcommand\AMC@setcolors@[2]{%
+  \def\AMC@boxcolor@{\AMC@boxcolor}%
+  \ifx\@empty#1\@empty \def\AMC@boxcolor@{black}\fi%
+  \ifAMC@correc\def\AMC@boxcolor@{black}\fi%
+  \def\AMC@fillcolor@{\ifx #2\AMC@checkedbox%
+    \AMC@boxcolor@\else white\fi}%
+  \AMC@draw@crossfalse%
+  \ifKV@AMCdim@cross\ifx #2\AMC@checkedbox%
+    \AMC@draw@crosstrue\fi\fi%
+}
+\newcommand\AMC@answerBox@[4]{%
+  \ifAMC@catalog%
+    \AMC@logchar{#1}{#4}%
+  \fi%
+  \AMC@LR{\hspace{0pt}%
+    \lower\AMC@boxeddown\hbox{\csname AMC@shape@\AMC@shapename@\endcsname%
+      {\AMCchoiceLabelFormat{#1}}{#2}{#3}{#4}}}%
+}
+\newcommand\AMC@shapeprepare@square{}
+\newcommand\AMC@shape@square[4]{%
+  \fboxsep=\z@\fboxrule=\AMC@boxedrule%
+  \AMC@setcolors@{#3}{#2}%
+  \ifKV@AMCdim@cross\def\AMC@fillcolor@{white}\fi%
+  \fcolorbox{\AMC@boxcolor@}{\AMC@fillcolor@}%
+  {%
+    \boxput*(0,0){%
+      \ifAMC@draw@cross\AMC@crosschar\fi%
+    }{%
+    \vbox to \AMC@boxedheight{%
+      \AMC@tracepos{#3}{#4}%
+      \vfill%
+      \hbox to \AMC@boxedwidth{\hfill%
+        \AMC@smashcentered{\textcolor{\AMC@boxcolor@}{#1}}%
+        \AMC@smashcentered{#2}%
+        \hfill}\vfill}}%
+    \AMC@tracepos{#3}{#4}}%
+}
+%    \end{macrocode}
+% |\AMC@makeovalbox|\marg{trace}\marg{answer}\marg{box} prepares an
+% oval frame in the \LaTeX{} box \meta{box}.
+%    \begin{macrocode}
+\newcommand\AMC@makeovalbox[3]{%
+  \AMC@setcolors@{#1}{#2}%
+  \ifKV@AMCdim@cross\def\AMC@fillcolor@{white}\fi%
+  \AMC@save@box{#3}{%
+    \begin{tikzpicture}%
+      \useasboundingbox (-0.5\AMC@boxedwidth-0.5\AMC@boxedrule,0.5\AMC@boxedheight+0.5\AMC@boxedrule)
+      rectangle (0.5\AMC@boxedwidth+0.5\AMC@boxedrule,-0.5\AMC@boxedheight-0.5\AMC@boxedrule);
+      \draw[\AMC@boxcolor@,fill=\AMC@fillcolor@,line width=\AMC@boxedrule,rounded corners=\AMC@oval@radius]
+      (-0.5\AMC@boxedwidth,0.5\AMC@boxedheight)
+      rectangle (0.5\AMC@boxedwidth,-0.5\AMC@boxedheight);
+      \ifAMC@draw@cross
+        \draw[\AMC@boxcolor@,line width=\AMC@crossrule]
+        (-0.5\AMC@boxedwidth,0.5\AMC@boxedheight) -- (0.5\AMC@boxedwidth,-0.5\AMC@boxedheight)
+        (0.5\AMC@boxedwidth,0.5\AMC@boxedheight) -- (-0.5\AMC@boxedwidth,-0.5\AMC@boxedheight);
+      \fi
+    \end{tikzpicture}}%
+}
+\newcommand\AMC@shapeprepare@oval{%
+  \ifx\AMC@ovalbox@R\@undefined\else%
+    \AMC@makeovalbox{1}{}{\AMC@ovalbox@R}%
+    \AMC@makeovalbox{1}{\AMC@checkedbox}{\AMC@ovalbox@RF}%
+    \AMC@makeovalbox{}{}{\AMC@ovalbox@}%
+    \AMC@makeovalbox{}{\AMC@checkedbox}{\AMC@ovalbox@F}%
+  \fi%
+}
+\newcommand\AMC@shape@oval[4]{%
+  \AMC@setcolors@{#3}{#2}%
+  \AMC@tracebox{#3}{#4}{\boxput*(0,0){%
+      \AMC@smashcentered{\textcolor{\AMC@boxcolor@}{#1}}%
+      \AMC@smashcentered{#2}%
+    }{%
+      \ifx\@empty#3\@empty%
+        \ifx #2\AMC@checkedbox%
+          \AMC@use@box{\AMC@ovalbox@F}%
+        \else%
+          \AMC@use@box{\AMC@ovalbox@}%
+        \fi%
+      \else%
+        \ifx #2\AMC@checkedbox%
+          \AMC@use@box{\AMC@ovalbox@RF}%
+        \else%
+          \AMC@use@box{\AMC@ovalbox@R}%
+        \fi%
+      \fi%
+    }}%
+}
+\newcommand\AMC@shapeprepare@form{}
+\newcommand\AMC@shape@form@base[5]{%
+  \ifx #2\AMC@checkedbox%
+    \def\AMC@shape@form@ticked{true}%
+  \else%
+    \def\AMC@shape@form@ticked{false}%
+  \fi%
+  \AMC@tracebox{#3}{#4}{%
+    \CheckBox[checked=\AMC@shape@form@ticked,%
+              checkboxsymbol=\ding{110},name={#5},%
+              bordercolor=0 0 0,
+              width=\AMC@boxedwidth,height=\AMC@boxedheight]{}{}%
+  }%
+}
+\newcommand\AMC@shape@form[4]{%
+  \AMC@shape@form@base{#1}{#2}{#3}{#4}{\the\AMCid@etud:#4}%
+}
+\newcommand\AMC@shapeprepare@none{}
+\newcommand\AMC@shape@none[4]{ #1 }
+%    \end{macrocode}\end{macro}
+%
+% \begin{macro}{\AMC@answerBox}\begin{macro}{\AMCchoiceLabel}\begin{macro}{\AMCchoiceLabelFormat}
+% Command |\AMC@answerBox| is the same as |\AMC@answerBox@|, but if
+% \meta{char} is empty, it is replaced by an arabic or alphabetical
+% counter, depending on the use of the |digits| package option.
+%
+% To use another way to label the choices boxes, the user can redefine
+% the |\AMCchoiceLabel| macro, which takes as argument the name of the
+% counter used to number the choices. One can for example use
+% |\def\AMCchoiceLabel#1{\alph{#1}}| to ask for lowercase letters.
+%
+% To write these labels with another font, size, or so, the user can
+% redefine the |\AMCchoiceLabelFormat| macro, which takes as argument
+% the label. One can for example get sans serif bold labels with
+% |\def\AMCchoiceLabelFormat#1{{\textsf{\textsf{#1}}}}|.
+%    \begin{macrocode}
+\def\AMCchoiceLabel#1{%
+  \ifAMC@inside@digit\arabic{#1}%
+  \else\Alph{#1}\fi%
+}
+\def\AMCchoiceLabelFormat#1{#1}
+\newcounter{AMC@ncase}
+\setcounter{AMC@ncase}{0}
+\newcommand\AMC@answerBox[4]{%
+  \AMC@answerBox@{\ifx\@empty#1\@empty%
+    \AMCchoiceLabel{AMC@ncase}%
+    \else #1\fi}{#2}{#3}{#4}}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+% 
+% \begin{macro}{\AMCboxStyle}
+%   The dimensions of these box are managed by
+%   |\AMCboxDimensions|\marg{sizes}, where \meta{sizes} is a coma
+%   separated list of \meta{name}|=|\meta{dimension} constructs. Here,
+%   \meta{name} can be |size| for the box size, |rule| for the box
+%   rule width, |down| for moving the box down, |color| for the box
+%   color and |outsidesep| for the distance between the box and the
+%   letter (when outside the box).
+%
+%   The \meta{color} value given to |color| is a color that should be
+%   defined for the |xcolor| package. This color is used only in the
+%   case the box will be used for data capture: it is not used on the
+%   corrected answer sheet (|answers| or |indivanswers| package
+%   option), and not used on the subject part of an exam with a
+%   separate answer sheet (|separateanswersheet| package option).
+%
+%   The |\AMCboxColor|\marg{color} command is defined as an alias to
+%   |\AMCboxStyle{color=|\meta{color}|}|, and |\AMCboxDimensions| as
+%   an alias to |\AMCboxStyle|, for backward compatibility.
+%
+%    \begin{macrocode}
+\newlength\AMC@boxedrule
+\newlength\AMC@crossrule
+\newlength\AMC@boxeddown
+\newlength\AMC@boxedwidth
+\newlength\AMC@boxedheight
+\newlength\AMC@oval@radius
+\newlength\AMC@outside@sep
+\define@choicekey{AMCdim}{shape}{square,oval,form,none}{\def\AMC@shapename{#1}}
+\define@key{AMCdim}{size}{\AMC@boxedwidth=#1\AMC@boxedheight=#1}
+\define@key{AMCdim}{height}{\AMC@boxedheight=#1}
+\define@key{AMCdim}{width}{\AMC@boxedwidth=#1}
+\define@key{AMCdim}{rule}{\AMC@boxedrule=#1}
+\define@key{AMCdim}{outsidesep}{\AMC@outside@sep=#1}
+\define@key{AMCdim}{down}{\AMC@boxeddown=#1}
+\define@key{AMCdim}{color}{\def\AMC@boxcolor{#1}}
+\define@boolkey{AMCdim}{cross}[false]{}
+\define@key{AMCdim}{crosschar}[\textbf{\textsf{X}}]{\def\AMC@crosschar{#1}}
+\define@key{AMCdim}{crossrule}[1.5pt]{\AMC@crossrule=#1}
+\def\AMC@shapeprepare{\csname AMC@shapeprepare@\AMC@shapename@ \endcsname}
+\def\AMCboxStyle#1{%
+  \setkeys{AMCdim}{#1}%
+  \ifnum\AMC@boxedwidth<\AMC@boxedheight%
+    \AMC@oval@radius=\AMC@boxedwidth\divide\AMC@oval@radius\tw@%
+  \else%
+    \AMC@oval@radius=\AMC@boxedheight\divide\AMC@oval@radius\tw@%
+  \fi%
+  \AMC@shapeprepare%
+}
+\AMCboxStyle{shape=square,size=2.5ex,down=.4ex,rule=.5pt,outsidesep=.1em,color=black,cross,crosschar,crossrule}
+\newcommand\AMCboxColor[1]{\AMCboxStyle{color=#1}}
+\let\AMCboxDimensions=\AMCboxStyle
+%    \end{macrocode}\end{macro}
+%
+% \begin{macro}{\AMCboxOutsideLetter}\begin{macro}{\AMC@box}\begin{macro}{\AMC@formBox@}\begin{macro}{\AMC@formBox}\begin{macro}{\AMCoutsideLabelFormat}
+%           Command |\AMC@box|\marg{char}\marg{answer} prints a box
+%           with character \meta{char} inside, showing answer
+%           \meta{answer} (|\AMC@checkedbox| to get a filled box),
+%           using global variables to identify the box (question and
+%           choice).
+%
+%   It calls
+%   |\AMC@formBox@|\marg{char}\marg{answer}\marg{trace}\marg{key} to
+%   actually render the box.
+%
+%   Command |\AMC@formBox| simply sets the first argument when empty
+%   before calling |\AMC@formBox@|.
+%
+%   The command |\AMCboxOutsideLetter|\marg{box}\marg{char} is called
+%   to print the box \textit{and} the character \meta{char} outside
+%   (and next to) it. The character is formatted using
+%   |\AMCoutsideLabelFormat| first: if you need bold characters,
+%   redifine it with |\def\AMCoutsideLabelFormat#1{\textbf{#1}}|
+%
+%   |\AMC@keyBox@| is used instead of |\AMCformBox@| when the text
+%   that corresponds to the answer is the letter/character inside the
+%   box itself (see |\AMCcodeGrid| and |\AMCnumericChoices|.
+%
+%    \begin{macrocode}
+\def\AMCoutsideLabelFormat#1{#1}
+\newcommand\AMCboxOutsideLetter[2]{#1\nobreak\hspace{.1em}\AMCoutsideLabelFormat{#2}}
+\newif\ifAMC@printformoutside@%
+\newcommand\ifAMC@printformoutside{%
+  \AMC@printformoutside@false%
+  \ifAMC@ensemble\ifAMC@outside@box%
+    \ifAMCformulaire@dedans\AMC@printformoutside@true\fi%
+    \ifAMC@zoneformulaire\AMC@printformoutside@true\fi%
+  \fi\fi%
+  \ifAMC@printformoutside@%
+}
+\newcommand\AMC@formBox@[4]{%
+  \ifAMC@printformoutside% letter to be written outside the box
+    \AMCboxOutsideLetter{\AMC@answerBox@{}{#2}{#3}{#4}}{#1}%
+  \else%
+    \AMC@answerBox@{#1}{#2}{#3}{#4}%
+  \fi%
+  \AMC@tracechar{#1}{#2}{#3}{#4}%
+}
+\newif\ifAMC@printkeyoutside@%
+\newcommand\ifAMC@printkeyoutside{%
+  \AMC@printkeyoutside@false%
+  \ifAMC@ensemble%
+    \ifAMC@outside@box\AMC@printkeyoutside@true\fi%
+  \else%
+    \ifAMC@inside@box\else\AMC@printkeyoutside@true\fi%
+  \fi%
+  \ifAMC@printkeyoutside@%
+}
+\newcommand\AMC@keyBox@[4]{%
+  \ifAMC@printkeyoutside%
+    \AMCboxOutsideLetter{\AMC@answerBox@{}{#2}{#3}{#4}}{#1}%
+  \else%
+    \AMC@answerBox@{#1}{#2}{#3}{#4}%
+  \fi%
+  \AMC@tracechar{#1}{#2}{#3}{#4}%
+}
+\newcommand\AMC@formBox[4]{%
+  \AMC@formBox@{\ifx\@empty#1\@empty%
+    \AMCchoiceLabel{AMC@ncase}%
+    \else #1\fi}{#2}{#3}{#4}%
+}
+\newcommand{\AMC@box}[2]{%
+  \ifAMC@ensemble%
+    \ifAMC@zoneformulaire% for codes inside form sheet
+      \protect\AMC@formBox{#1}{#2}{1}{case:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}%
+    \else%
+      \ifAMCformulaire@dedans% for answer boxes inside form sheet
+        \protect\AMC@formBox{#1}{#2}{1}{case:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}%
+      \else% outside form sheet: not to be read during data capture
+        \AMC@formBox{#1}{#2}{1}{casequestion:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}%
+    \fi\fi%
+  \else% no separate sheet for answers: always read
+    \ifAMC@inside@box%
+      \AMC@formBox{#1}{#2}{1}{case:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}%
+    \else%
+      \AMC@formBox@{}{#2}{1}{case:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}%
+    \fi%
+  \fi%
+}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}\end{macro}\end{macro}
+%
+% \subsubsection{Scoring zones}
+%
+% \begin{macro}{\AMCscoreZone}
+%   The source file can define zones that will be used to print scores
+%   when annotating the completed answer sheets. The command
+%   |\AMCscoreZone|\marg{zone} logs these zones positions on the page.
+%    \begin{macrocode}
+\newif\ifAMCsz@logged\AMCsz@loggedfalse
+\newcommand{\AMCscoreZone}[1]{%
+  \ifAMC@ensemble%
+    \ifAMCformulaire@dedans%
+      \AMC@tracebox{1}{score::\the\AMCid@quest,-1}{#1}%
+    \else%
+      \AMC@tracebox{1}{scorequestion::\the\AMCid@quest,-1}{#1}%
+    \fi%
+  \else%
+    \AMC@tracebox{1}{score::\the\AMCid@quest,-1}{#1}%
+  \fi%
+  \ifAMCsz@logged\else%
+    \AMCmessage{VAR:scorezones=1}%
+    \global\AMCsz@loggedtrue%
+  \fi%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsubsection{Binary boxes}
+% 
+% The package prints on each page some boxes that code (like binary
+% digits) student sheet number, page number and a check number, so as
+% to be read easily from scans after exam.
+%
+% \begin{macro}{\AMCid@checkmax}\begin{macro}{\AMC@NCBetud}
+% \begin{macro}{\AMC@NCBpage}\begin{macro}{\AMC@NCBcheck}
+%     The check number is just decreased each page. Its maximum value
+%     is |\AMCid@checkmax|. The number of binary digits used to print
+%     student sheet number, page and check number are |\AMC@NCBetud|,
+%     |\AMC@NCBpage| and |\AMC@NCBcheck|. The number of the first page
+%     is |\AMC@premierecopie|.
+%     
+%     The length of zone reserved for binary boxes is |\AMC@CBtaille|.
+%    \begin{macrocode}
+\def\AMCid@checkmax{60}
+\def\AMC@NCBetud{12}
+\def\AMC@NCBpage{6}
+\def\AMC@NCBcheck{6}
+\newlength{\AMC@CBtaille}\setlength{\AMC@CBtaille}{5cm}
+\def\AMC@premierecopie{1}
+%    \end{macrocode}
+% \end{macro}\end{macro}\end{macro}\end{macro}
+%
+% \begin{macro}{\AMC@binaryCode}
+%   The command |\AMC@binaryCode|\marg{options}\marg{n} prints
+%   boxes to represent the number \meta{n} in its binary
+%   form. Options from \meta{options} include:
+%   \begin{itemize}
+%   \item[|ndigits=|\meta{ndigits}] for the number of digits to be shown.
+%   \item[|id=|\meta{id}] for an ID of the number role (1 for the
+%     student number, 2 for the page number, 3 for the checking
+%     value).
+%   \item[|hsep=|\meta{hsep}] for the space between boxes.
+%   \item[|style=|\meta{style}] for some box style options.
+%   \end{itemize}
+%   |\AMCbin@one| and |\AMCbin@zero| print individual
+%   digit-boxes.
+%
+%   For example, |\AMC@binaryCode{ndigits=12}{367}| shows $367=000101101111_2$
+%   using 12 boxes:
+%   \begin{center}
+%     \makeatletter\AMC@binaryCode{ndigits=12}{367}\makeatother
+%   \end{center}
+%
+%    \begin{macrocode}
+\newtoks\AMCbin@sequence
+\newcount\AMCbin@number
+\newcount\AMCbin@digit
+\newcount\AMCbin@id
+\newcount\AMCbin@did
+\newcount\AMCbin@ndigits
+\newdimen\AMCbin@hsep
+\define@key{AMCbin}{ndigits}{\AMCbin@ndigits=#1}
+\define@key{AMCbin}{id}{\AMCbin@id=#1}
+\define@key{AMCbin}{hsep}{\AMCbin@hsep=#1}
+\define@key{AMCbin}{style}[]{\def\AMCbin@style{#1}}
+\def\AMCbin@one{%
+  \ifnum\AMCbin@did>\z@%
+  \hspace{\AMCbin@hsep}%
+  \fi%
+  \advance\AMCbin@did\@ne%
+  \ifnum\AMCbin@id>0%
+  \AMC@answerBox@{}{\AMC@checkedbox}{1}{chiffre:\the\AMCbin@id,\the\AMCbin@did}%
+  \else%
+  \AMC@answerBox@{}{\AMC@checkedbox}{1}{}%
+  \fi}
+\def\AMCbin@zero{%
+  \ifnum\AMCbin@did>\z@%
+  \hspace{\AMCbin@hsep}%
+  \fi%
+  \advance\AMCbin@did\@ne%
+  \ifnum\AMCbin@id>0%
+  \AMC@answerBox@{}{}{1}{chiffre:\the\AMCbin@id,\the\AMCbin@did}%
+  \else%
+  \AMC@answerBox@{}{}{1}{}%
+  \fi}
+\newcommand{\AMC@binaryCode}[2]{%
+\setkeys{AMCbin}{ndigits=1,hsep=0pt,style}\setkeys{AMCbin}{#1}%
+\AMCbin@did=\z@%
+{\AMCboxDimensions{shape=square,size=.32cm,down=0pt,rule=.2pt,cross=false}\expandafter\AMCboxDimensions\expandafter{\AMCbin@style}\AMCbin@sequence={}\AMCbin@number=#2\relax%
+\AMCbin@digit=\z@%
+\loop%
+\ifnum\AMCbin@number>\z@%
+\advance\AMCbin@digit\@ne%
+\ifodd\AMCbin@number\AMCbin@sequence=\expandafter{\expandafter\AMCbin@one\the\AMCbin@sequence}%
+\else\AMCbin@sequence=\expandafter{\expandafter\AMCbin@zero\the\AMCbin@sequence}\fi%
+\divide\AMCbin@number\tw@%
+\repeat%
+\loop\relax%
+\ifnum\AMCbin@digit<\AMCbin@ndigits\advance\AMCbin@digit\@ne%
+\AMCbin@sequence=\expandafter{\expandafter\AMCbin@zero\the\AMCbin@sequence}\repeat%
+\the\AMCbin@sequence%
+\ifnum\AMCbin@digit>\AMCbin@ndigits\PackageError{automultiplechoice}{Too low AMC@NCB value (got \the\AMCbin@ndigits, but needs \the\AMCbin@digit)}{Number of available digits is \the\AMCbin@ndigits, but needs \the\AMCbin@digit}\fi%
+}}
+%    \end{macrocode}\end{macro}
+% The commands |\AMCbin@begin| and |\AMC@binaryBoxes| are now unused
+% and are defined for backward compatibility.
+%    \begin{macrocode}
+\def\AMCbin@begin#1{\setkeys{AMCbin}{id=#1}}
+\newcommand{\AMC@binaryBoxes}[2][1]{%
+\AMC@binaryCode{ndigits=#1}{#2}%
+}
+%    \end{macrocode}
+%
+% \subsection{Checking Environment}
+%
+% \begin{macro}{\AMCcurrentenv}
+%     Sets the current environment as document.
+%    \begin{macrocode}
+\def\AMCcurrentenv{document}
+%    \end{macrocode}
+% \end{macro}
+% \begin{macro}{\AMCif@env}
+%     Checks for the current environment.
+%    \begin{macrocode}
+\def\AMCif@env#1{
+    \def\AMC@tempenv{#1}%
+    \ifx\AMC@tempenv\AMCcurrentenv
+        \expandafter\@firstoftwo
+    \else
+        \expandafter\@secondoftwo
+    \fi
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsection{Handling groups of questions}
+%
+% The package allows to handle groups of questions, so as to be able
+% to shuffle them before printing them to the sheets.
+%
+% \begin{macro}{\nouveaugroupe}\begin{macro}{\element}
+%     Command |\nouveaugroupe|\marg{group-name}\marg{n} creates a new
+%     (empty) group with name \meta{group-name} (argument \meta{n} is
+%     present only for compatibility reasons and is ignored). Command
+%     |\element|\marg{group-name}\marg{text} adds to group
+%     \meta{group-name} a new element that contains
+%     \meta{text}. \meta{text} can be a |question| environment, ore
+%     two successive |question|s to be kept together, or
+%     anything else. Calling command |\nouveaugroupe| is not
+%     compulsory, as |\element| calls it if necessary.
+%    \begin{macrocode}
+\newcount\AMCtok@k
+\newcount\AMCtok@max
+\newcount\AMCtok@size
+\newcommand{\nouveaugroupe}[2]{%
+  \expandafter\ifx\csname #1@k\endcsname\relax%
+    \expandafter\newcount\csname #1@k\endcsname%
+    \expandafter\newcount\csname AMC#1@j\endcsname%
+    \csname #1@k\endcsname=\z@\relax%
+    \csname AMC#1@j\endcsname=\z@\relax%
+    \setgroupmode{#1}{\AMCdefault@groupmode}%
+  \fi%
+}
+\newcommand\AMC@prepare@element[1]{%
+  \nouveaugroupe{#1}{}%
+  \global\advance\csname #1@k\endcsname\@ne\relax%
+  \AMCtok@k=\csname #1@k\endcsname%
+  \expandafter\ifx\csname #1@\romannumeral\AMCtok@k\endcsname\relax%
+    \expandafter\newtoks\csname #1@\romannumeral\AMCtok@k\endcsname\fi%
+}
+\newcommand{\element}[2]{%
+  \AMC@prepare@element{#1}%
+  \global\csname #1@\romannumeral\AMCtok@k\endcsname={#2}%
+}
+%    \end{macrocode}\end{macro}\end{macro}
+% \begin{macro}{\setgroupmode}\begin{macro}{\setdefaultgroupmode}
+%   Command |\setgroupmode|\marg{group-name}\marg{mode} sets the group
+%   mode to \meta{mode} for group \meta{group-name}. This mode setup
+%   the behaviour of |\insertgroup| and |\copygroup| for this group:
+%   \begin{enumerate}
+%   \item With mode |fixed|, group's
+%     elements will be taken from the beginning.
+%   \item With mode |cyclic|, the elements will be taken from the
+%     group following the last call group's use, recycling if
+%     necessary.
+%   \item Mode |withreplacement| is the same as |fixed|, but the group
+%     is shuffled before each use.
+%   \item Mode |withoutreplacement| is like |cyclic|, adding some
+%     shuffling when comming back to the beginning of the group.
+%   \end{enumerate}
+%   The command |\setdefaultgroupmode|\marg{mode} sets the group mode
+%   to be used for the following created groups (a group is created at
+%   the first |\element|\marg{group} call). When no
+%   |\setdefaultgroupmode| is used, |fixed| is the default mode.
+%    \begin{macrocode}
+\def\AMCdefault@groupmode{fixed}
+\newcommand{\setdefaultgroupmode}[1]{\def\AMCdefault@groupmode{#1}}
+\newcommand{\setgroupmode}[2]{%
+  \expandafter\ifx\csname AMCgrouppre@#2\endcsname\relax%
+    \PackageError{automultiplechoice}{Unknown group mode for #1 : #2}%
+       {You asked to set group '#1' mode to '#2',
+         but '#2' is not a valid group mode}%
+  \else%
+    \expandafter\global\expandafter\def\csname AMC#1@mode\endcsname{#2}%
+  \fi%
+}
+%    \end{macrocode}
+% The functions |\AMCgrouppre@|xxx\marg{group-name}\marg{n}\marg{i}
+% are called before using \meta{n} elements from group
+% \meta{group-name} starting from index \meta{i} (negative value for
+% \meta{i} stands for the current value of the group index), either
+% with |\insertgroup| or |\copygroup|.
+%
+% For mode \textbf{fixed}, the group index is set to \meta{i}, or 0 if
+% \meta{i} is negative (take elements from the beginning).
+%    \begin{macrocode}
+\newcommand{\AMCgrouppre@fixed}[3]{%
+  \ifnum#3<\z@%
+    \csname AMC#1@j\endcsname=\z@%
+  \else%
+    \csname AMC#1@j\endcsname=#3%
+  \fi%
+}
+%    \end{macrocode}
+% For mode \textbf{withreplacement}, the group is shuffled and the
+% group index is set to \meta{i} or 0 (take elements from the
+% beginning) if negative.
+%    \begin{macrocode}
+\newcommand{\AMCgrouppre@withreplacement}[3]{%
+  \ifnum#3<\z@%
+    \csname AMC#1@j\endcsname=\z@%
+  \else%
+    \csname AMC#1@j\endcsname=#3%
+  \fi%
+  \shufflegroup{#1}%
+}
+%    \end{macrocode}
+% For mode \textbf{withoutreplacement}, the group index is set to
+% \meta{i}, or left unchanged if \meta{i} is negative. If there is not
+% enough elements left in the group, the elements before the index and
+% the elements after the index are shuffled.
+%    \begin{macrocode}
+\newcount\AMC@imax
+\newcommand{\AMCgrouppre@withoutreplacement}[3]{%
+  \ifnum#3<\z@%
+  \else%
+    \csname AMC#1@j\endcsname=#3%
+  \fi%
+  \ifnum\AMCtok@ik=\AMCloop@k%
+    \AMCtok@ik=\z@%
+  \fi%
+  \ifnum\AMCtok@ik=\z@%
+    \shufflegroup{#1}%
+  \else%
+    \AMC@imax=\AMCloop@k%
+    \advance\AMC@imax -#2\relax%
+    \ifnum\AMCtok@ik>\AMC@imax%
+      \shufflegroupslice{#1}{\@ne}{\AMCtok@ik}%
+      \ifnum\AMCtok@ik<\AMCloop@k%
+        \advance\AMCtok@ik\@ne%
+        \shufflegroupslice{#1}{\AMCtok@ik}{\AMCloop@k}%
+      \fi%
+    \fi%
+  \fi%
+}
+%    \end{macrocode}
+% For mode \textbf{cyclic}, nothing has to be done, except setting the
+% group index if non-negative.
+%    \begin{macrocode}
+\newcommand{\AMCgrouppre@cyclic}[3]{%
+  \ifnum#3<\z@%
+  \else%
+    \csname AMC#1@j\endcsname=#3%
+  \fi%
+}
+%    \end{macrocode}
+% The function
+% |\AMCgroup@pre|\marg{mode}\marg{group-name}\marg{n}\marg{i} calls
+% the right |\AMCgrouppre@|xxx command.
+%    \begin{macrocode}
+\newcommand{\AMCgroup@pre}[4]{%
+  \csname AMCgrouppre@#1\endcsname{#2}{#3}{#4}%
+}
+%    \end{macrocode}
+% \end{macro}\end{macro}
+% \begin{macro}{\shufflegroup}\begin{macro}{\insertgroup}\begin{macro}{\insertgroupfrom}
+%     Command |\shufflegroup|\marg{group-name} shuffles the elements
+%     of group \meta{group-name}, and
+%     |\shufflegroupslice|\marg{group-name}\marg{a}\marg{b} shuffles
+%     elements \meta{a} to \meta{b} from group \meta{group-name}. It
+%     can be called at each student sheet in order to get different
+%     student sheets and avoid cheating.
+%
+%     Command
+%     |\insertgroup|\oarg{n}\marg{groupname} inserts all the elements
+%     of group \meta{groupname}, or only the first \meta{n} elements
+%     if \meta{n} is given.
+%     |\insertgroupfrom|\oarg{n}\marg{groupname}\marg{i} inserts all
+%     the elements of group \meta{groupname} starting from index
+%     \meta{i} (the index of the first element is 0), or only the
+%     first \meta{n} elements if \meta{n} is given.
+%    \begin{macrocode}
+\newcommand{\shufflegroup}[1]{%
+  \ifAMC@shuffleG{\AMC@shuffletoks{\number\csname #1@k\endcsname}{#1@}}\fi%
+}
+\newcommand{\shufflegroupslice}[3]{%
+  \ifAMC@shuffleG{\AMC@shuffletoks[#2]{#3}{#1@}}\fi%
+}
+\newcount\AMCtok@ik
+\newcount\AMCloop@k
+\newcommand{\AMCgrouploop@prep}[3]{%
+  \AMCtok@size=#1\relax%
+  \ifAMC@fullGroups\AMCtok@size=\m@ne\fi%
+  \ifnum\AMCtok@size<\z@%
+    \AMCtok@size=\csname #2@k\endcsname%
+  \fi%
+  \AMCtok@ik=\csname AMC#2@j\endcsname%
+  \AMCloop@k=\csname #2@k\endcsname%
+  \expandafter\ifx\csname AMC#2@mode\endcsname\relax%
+    \PackageError{automultiplechoice}{No group mode for #2}%
+       {No mode has been defined for group '#2'. This should not occur...}%
+  \fi%
+  \AMCgroup@pre{\csname AMC#2@mode\endcsname}{#2}{\the\AMCtok@size}{#3}%
+}
+\newcommand{\AMCgrouploop@next}[1]{%
+  \global\advance\csname AMC#1@j\endcsname\@ne\relax%
+  \expandafter\ifnum\csname AMC#1@j\endcsname>\AMCloop@k\relax%
+    \global\csname AMC#1@j\endcsname=\@ne%
+  \fi%
+  \AMCtok@ik=\csname AMC#1@j\endcsname%
+  \advance\AMCtok@size\m@ne%
+}
+\newcommand{\insertgroupfrom}[3][-1]{%
+  \ifnum#1=0%
+  \else%
+    \AMCgrouploop@prep{#1}{#2}{#3}%
+    {\loop%
+      \AMCgrouploop@next{#2}%
+      {\the\csname #2@\romannumeral\AMCtok@ik\endcsname}%
+    \ifnum\AMCtok@size>\z@\repeat}%
+  \fi%  
+}
+\newcommand{\insertgroup}[2][-1]{%
+  \insertgroupfrom[#1]{#2}{-1}%
+}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+% 
+% \begin{macro}{\cleargroup}\begin{macro}{\copygroup}\begin{macro}{\copygroupfrom}
+%     The commands |\cleargroup| and |\copygroup| can also be used to
+%     make more complex questions combinations in the exams, allowing
+%     for example to ask the package to shuffle 3 questions taken at
+%     random from group |groupa| and 5 questions taken at random from
+%     group |groupb|.
+%
+%     |\cleargroup|\marg{group} clears the group \meta{group},
+%     ereasing all of its elements.
+%
+%     |\copygroup|\oarg{n}\marg{from}\marg{to} copies \meta{n}
+%     elements from group \meta{from} to group \meta{to}. If optional
+%     parameter \meta{n} is not given, all the questions from group
+%     \meta{from} are copied.
+%     |\copygroupfrom|\oarg{n}\marg{from}\marg{to}\marg{i} copies
+%     \meta{n} elements from group \meta{from} to group \meta{to},
+%     starting from element at index \meta{i} (the index of the first
+%     element is 0). If optional parameter \meta{n} is not given, all
+%     the questions from group \meta{from} are copied.
+%
+%     See section~\ref{d:groups} for an illustration for these commands.
+%
+%    \begin{macrocode}
+\newcommand{\cleargroup}[1]{%
+  \nouveaugroupe{#1}{}%
+  \csname #1@k\endcsname=\z@\relax%
+  \csname AMC#1@j\endcsname=\z@\relax%
+}
+\newcommand{\copygroupfrom}[4][-1]{%
+  \ifnum#1=0%
+  \else%
+    \AMCgrouploop@prep{#1}{#2}{#4}%
+    {\loop%
+      \AMCgrouploop@next{#2}%
+      \AMC@prepare@element{#3}%    
+      \global\csname #3@\romannumeral\AMCtok@k\endcsname=\csname #2@\romannumeral\AMCtok@ik\endcsname%
+    \ifnum\AMCtok@size>\z@\repeat}%
+  \fi%
+}
+\newcommand{\copygroup}[3][-1]{%
+  \copygroupfrom[#1]{#2}{#3}{-1}%
+}
+%    \end{macrocode}
+% \end{macro}
+% \end{macro}
+% \end{macro}
+% 
+% \subsection{Questions}
+%
+% To manage multiple choice questions, first set some counters and
+% token registers to handle answers. Token registers |\reponse@i|,
+% |\reponse@ii| and so on will be used for answers -- we restrict the
+% number of answers of a single questions to
+% |\AMCload@counter|${}=199$.
+%    \begin{macrocode}
+\newcount\AMCrep@count
+\AMCload@counter=199
+\@whilenum\AMCload@counter>0\do{%
+  \expandafter\newtoks\csname reponse@\romannumeral\AMCload@counter\endcsname%
+  \advance\AMCload@counter\m@ne%
+}
+%    \end{macrocode}
+% \begin{macro}{\AMCload@reponse}\begin{macro}{\AMCrien@deux}
+%     Command |\AMCload@reponse|\marg{n}\marg{text} will be used to
+%     add answer number \meta{n} with text \meta{text} (\meta{text}
+%     will include the box to be ticked and all the layout commands)
+%     to the set of answers (in a token register |\reponse@|\emph{xxx}
+%     -- counter |\AMCload@counter| keeps track of the number of
+%     answers), in order to shuffle them when all answers will be
+%     loaded.
+%
+%     When answers are not to be shuffled, command
+%     |\AMCrien@deux|\marg{n}\marg{text} will be used instead, only
+%     printing \meta{text}.
+%    \begin{macrocode}
+\newcommand\AMCload@reponse[2]{%
+  \global\advance\AMCload@counter\@ne\relax%
+  \global\csname reponse@\romannumeral\AMCload@counter\endcsname%
+  =\expandafter{\expandafter\AMCrep@count\expandafter=#2 #1}%
+}
+\newcommand\AMCrien@deux[2]{#1}
+%    \end{macrocode}\end{macro}\end{macro}
+% \begin{macro}{\shuffle@it}\begin{macro}{\AMCdump@reponses}
+%     After loading all answers, commands |\shuffle@it| will be used to
+%     shuffle them, and |\AMCdump@reponses| to print them.
+%    \begin{macrocode}
+\def\shuffle@it{\AMC@shuffletoks{\number\AMCload@counter}{reponse@}}
+\newcount\AMCnum@questions
+\newcommand\AMCdump@reponses{%
+  \global\AMCnum@questions=\AMCload@counter%
+  \@whilenum\AMCload@counter>0\do{%
+    \the\csname reponse@\romannumeral\AMCload@counter\endcsname%
+    \advance\AMCload@counter\m@ne}}
+%    \end{macrocode}\end{macro}\end{macro}
+%
+% \subsubsection{Managing answers}
+% 
+% \begin{macro}{\lastchoices}\begin{macro}{\AMCrep@init}\begin{macro}{\AMC@fin@rep}
+%       Command |\AMCrep@init|\marg{mode} is called for each question
+%       before reading answers. \meta{mode} is |r| for suffled
+%       answers, and |o| if answers are not to be shuffled. It sets
+%       the number of answers counter to zero, and calls |\AMCrep@o|
+%       or |\AMCrep@r| depending on \meta{mode}. These commands sets
+%       |\AMCload@@reponse| and |\AMCrep@fini| that will be called for
+%       each answer and after the last answer respectively, depending
+%       on \meta{mode}:
+%       \begin{itemize}
+%       \item If \meta{mode}=|r|, |\AMCload@@reponse| is
+%         |\AMCload@reponse| (loads answer to token register) and
+%         |\AMCrep@fini| calls |\shuffle@it| and |\AMCdump@reponses|;
+%       \item If \meta{mode}=|o|, |\AMCload@@reponse| is
+%         |\AMCrien@deux| (prints answer directly) and |\AMCrep@fini|
+%         does nothing.
+%       \end{itemize}
+%
+%       Command |\lastchoices| is called before giving answers that
+%       are to be printed at the end (even when shuffling answers). It
+%       closes the answers list calling |\AMCrep@fini| and opens
+%       another one in ordered mode. Note that it also saves the value
+%       of |\AMCrep@count|, which is the number of the current answer
+%       among all answers given in the subject source for the current
+%       question.
+%
+%       Command |\AMC@fin@rep| is to be called after the last answer:
+%       it adds a ``\makeatletter\AMC@loc@none\makeatother'' answer if
+%       necessary (package option |completemulti|) with answer number
+%       zero, and calls |\AMCrep@fini|.
+%    \begin{macrocode}
+\newcommand\AMCrep@init[1]{%
+  \ifAMC@ordre\AMCrep@o\else%
+    \csname AMCrep@#1\endcsname\fi\AMCload@counter=\z@}
+\newcommand\AMCrep@o{%
+  \def\AMCload@@reponse{\AMCrien@deux}\def\AMCrep@fini{}}
+\newcommand\AMCrep@r{%
+  \def\AMCload@@reponse{\AMCload@reponse}%
+  \def\AMCrep@fini{\shuffle@it\AMCdump@reponses}}
+\newcount\AMCrep@@count
+\newcommand\lastchoices{%
+  \AMCrep@@count=\AMCrep@count%
+  \AMCrep@fini\AMCrep@init{o}%
+  \AMCrep@count=\AMCrep@@count}
+\newcommand\@aucune{\emph{\AMC@loc@none}}
+\newcommand\AMC@fin@rep{%
+  \ifAMCcomplete@multi\ifAMCtype@multi%
+    \lastchoices\AMCrep@count=-1%
+    \ifAMCune@bonne\wrongchoice{\@aucune}\else%
+      \ifAMC@postcorrect\wrongchoice{\@aucune}\else\correctchoice{\@aucune}\fi%
+    \fi\fi\fi\AMCrep@fini}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+%
+% \subsubsection{Separate answer sheet}
+%
+% This package needs some memory to print questions/answers boxes
+% again on a separate answer sheet.
+% 
+% \begin{macro}{\AMCformQuestion}\begin{macro}{\AMCformAnswer}
+%     First define commands that will announce questions and answers
+%     on the separate answer sheet (these commands can be modified by
+%     the user): |\AMCformQuestion|\marg{number} is responsible for
+%     announcing question, and
+%     |\AMCformAnswer|\marg{box} is responsible for printing the box
+%     to be ticked, given as argument \meta{box}.
+%
+%     Commands |\AMCformQuestionA| and |\AMCformAnswerA| set up
+%     counter |\AMC@ncase| value before calling their counterparts.
+%
+%    \begin{macrocode}
+\def\AMCformBeforeQuestion{\vspace{\AMCformVSpace}\par}
+\def\AMCformAfterQuestion{\ifAMC@asqbloc\egroup\fi}
+\def\AMCformQuestion#1{\AMC@loc@qf{#1}}
+\def\AMCformQuestionN{\AMCformQuestion{\AMC@qaff}}
+\def\AMCformQuestionA{%
+  \setcounter{AMC@ncase}{0}%
+  \AMCformBeforeQuestion%
+  \ifAMC@asqbloc\vbox\bgroup\fi%
+  \ifx\@empty\AMC@sza@callout\@empty\else%
+    \csname\AMC@sza@callout\endcsname%
+  \fi%
+  \AMCformQuestionN%
+  \ifx\@empty\AMC@sza@callin\@empty\else%
+    \csname\AMC@sza@callin\endcsname%
+  \fi%
+}
+\def\AMCformAnswer#1{\hspace{\AMCformHSpace} #1}
+\def\AMCformAnswerA#1{\addtocounter{AMC@ncase}{1}\AMCformAnswer{#1}}
+%    \end{macrocode}\end{macro}\end{macro}\
+%
+% \begin{macro}{\AMC@mem@add@ifneeded}\begin{macro}{\AMCformBegin}\begin{macro}{\AMCform}\begin{macro}{\AMCformS}
+%         These are commands to manage memory for separate answer
+%         sheet. |\AMC@mem@add@ifneeded|\marg{code} adds \meta{code} to this
+%         memory. |\AMC@mem@answer|\marg{code} adds to memory answer
+%         code \meta{code}, and |\AMC@mem@openQuestion| adds to memory question
+%         code to announce current question.
+%
+%       The command |\AMCformBegin| defines the beginning of the
+%       separate answer sheet for the current student sheet, and
+%       |\AMCform| prints the whole memory: questions and answers
+%       boxes.
+%
+%       |\AMCformS| is a |\AMCform| variant that does not clear the
+%       list of answer boxes. It can be used to make the same exact
+%       subject for all students, displaying the questions before
+%       (outside) |onecopy|, so that |onecopy| contains only the
+%       answer sheet.
+%
+%    \begin{macrocode}
+\ExplSyntaxOn
+
+\prg_set_conditional:Nnn \amc_if_separate_question: { p , T } {
+  \ifAMC@ensemble
+    \ifAMC@zoneformulaire
+      \prg_return_false:
+    \else
+      \prg_return_true:
+    \fi
+  \else
+    \prg_return_false:
+  \fi
+}
+\cs_new_eq:NN \AMC@if@separate@question \amc_if_separate_question:T
+
+\int_new:N \amc_memory_elts_count
+
+\cs_new:Nn \amc_clear_memory: { \int_gzero:N \amc_memory_elts_count }
+\cs_new_eq:NN \AMC@mem@clear \amc_clear_memory:
+
+\cs_new:Npn \amc_memory_elt_i:n #1 {
+  amc_memory_elts_ \int_to_alph:n { #1 }
+}
+\cs_new:Nn \amc_memory_current_elt: {
+  \amc_memory_elt_i:n \amc_memory_elts_count
+}
+\cs_new:Npn \amc_memory_vars_i:n #1 {
+  amc_memory_vars_ \int_to_alph:n { #1 }
+}
+\cs_new:Nn \amc_memory_current_vars: {
+  \amc_memory_vars_i:n \amc_memory_elts_count
+}
+
+\cs_new:Nn \amc_add_memory_elt: {
+  \int_gincr:N \amc_memory_elts_count
+  \tl_gclear_new:c { \amc_memory_current_elt: }
+  \tl_gclear_new:c { \amc_memory_current_vars: }
+}
+\cs_new_eq:NN \AMC@mem@next \amc_add_memory_elt:
+
+\cs_new:Npn \amc_add_to_memory:n #1 {
+  \tl_gput_right:cn { \amc_memory_current_elt: } { #1 }
+}
+\cs_new_eq:NN \AMC@mem@add \amc_add_to_memory:n
+
+\cs_new:Npn \amc_add_to_vars:n #1 {
+  \tl_gput_right:cn { \amc_memory_current_vars: } { #1 }
+}
+\cs_new_eq:NN \AMC@mem@addvar \amc_add_to_vars:n
+
+\cs_new:Npn \amc_add_qidaffname:nnn #1#2#3 {
+  \amc_add_to_vars:n {\AMCid@quest=#1\setcounter{AMCquestionaff}{#2}%
+    \global\def\AMCid@name{#3}}
+}
+\cs_generate_variant:Nn \amc_add_qidaffname:nnn { xxx }
+\cs_new_eq:NN \AMC@mem@qidaffname \amc_add_qidaffname:xxx
+
+\cs_new:Npn \amc_mem_elt_cat:n #1 {
+  \amc_add_to_vars:n { \def\AMCmem@elt@cat{ #1 } }
+}
+\cs_generate_variant:Nn \amc_mem_elt_cat:n { x }
+\cs_new_eq:NN \AMC@mem@category \amc_mem_elt_cat:x
+
+\cs_new:Npn \amc_add_aid:n #1 {
+  \amc_add_to_memory:n {\AMCrep@count=#1}
+}
+\cs_generate_variant:Nn \amc_add_aid:n { x }
+\cs_new_eq:NN \AMC@mem@aid \amc_add_aid:x
+
+\cs_new:Npn \amc_if_category_is_p:n #1 {
+  \str_if_eq_p:on { \AMCmem@elt@cat } { #1 }
+}
+\cs_new:Npn \amc_use_memory:n #1 {
+  \int_step_inline:nnnn { 1 } { 1 } \amc_memory_elts_count {
+    \def\AMCmem@elt@cat{ plain }
+    \tl_use:c { \amc_memory_vars_i:n { ##1 } }
+    \bool_if:nTF { #1 } {
+      \tl_use:c { \amc_memory_elt_i:n { ##1 } }
+    } { }
+  }
+}
+\cs_new:Nn \amc_use_memory: { \amc_use_memory:n { \c_true_bool } }
+\cs_new_eq:NN \AMC@mem@show \amc_use_memory:
+\cs_new_eq:NN \AMC@mem@show@filter \amc_use_memory:n
+\cs_new_eq:NN \AMCifcategory \amc_if_category_is_p:n
+
+\ExplSyntaxOff
+\newcommand\AMC@mem@add@ifneeded[1]{%
+  \AMC@if@separate@question{%
+    \AMC@mem@add{#1}%
+  }%
+}
+\newcommand\AMC@mem@addsingle@ifneeded[2]{%
+  \AMC@if@separate@question{%
+    \AMC@mem@next%
+    \AMC@mem@category{#2}%
+    \AMC@mem@add{#1}%
+  }%
+}
+\newcommand\AMC@mem@answer[1]{%
+  \addtocounter{AMC@ncase}{1}%
+  \AMC@if@separate@question{%
+    \AMC@mem@aid{\the\AMCrep@count}%
+    \AMC@mem@add{\AMCformAnswerA{#1}}%
+  }%
+}
+\newcommand\AMC@mem@openQuestion{%
+  \AMC@if@separate@question{%
+    \AMC@mem@next%
+    \AMC@mem@qidaffname{\the\AMCid@quest}{\arabic{AMCquestionaff}}{\AMCid@name}%
+    \AMC@mem@add{\AMCformQuestionA}%
+  }%
+}
+\def\AMCformBegin{%
+  \AMC@zoneformulairetrue\setcounter{section}{0}%
+  \ifAMC@ensemble\ifAMC@automarks\pagestyle{AMCpageFull}\fi\fi%
+}
+\newcommand\AMCform{%
+  \ifAMC@ensemble\AMCformulaire@dedanstrue%
+    \AMC@mem@show%
+  \fi}
+\newcommand\AMCformFilter[1]{%
+  \ifAMC@ensemble\AMCformulaire@dedanstrue%
+    \AMC@mem@show@filter{#1}%
+  \fi}
+\newif\ifAMC@keepmemory
+\newcommand\AMCformS{%
+  \ifAMC@ensemble\AMCformulaire@dedanstrue%
+  \AMCmessage{BR=0}\AMC@mem@show%
+  \global\AMC@keepmemorytrue%
+  \fi}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}\end{macro}
+%
+% \begin{macro}{\AMCsection}\begin{macro}{\AMCsubsection}
+%     The |\AMCsection| and |\AMCsubsection| commands issue their
+%     standard counterparts (|\section| and |\subsection| with the
+%     same argument, both in the subject \emph{and} in the separate
+%     answer sheet.
+%    \begin{macrocode}
+\newcommand{\AMCsectionNumbered}[1]{%
+  \section{#1}\AMC@mem@addsingle@ifneeded{\section{#1}}{section}}
+\newcommand{\AMCsubsectionNumbered}[1]{%
+  \subsection{#1}\AMC@mem@addsingle@ifneeded{\subsection{#1}}{subsection}}
+\newcommand{\AMCsectionStar}[1]{%
+  \section*{#1}\AMC@mem@addsingle@ifneeded{\section*{#1}}{section}}
+\newcommand{\AMCsubsectionStar}[1]{%
+  \subsection*{#1}\AMC@mem@addsingle@ifneeded{\subsection*{#1}}{subsection}}
+\def\AMCsection{\@ifstar\AMCsectionStar\AMCsectionNumbered}
+\def\AMCsubsection{\@ifstar\AMCsubsectionStar\AMCsubsectionNumbered}
+%    \end{macrocode}
+% \end{macro}\end{macro}
+%
+% \subsubsection{Formatting answers}
+%
+% \begin{environment}{choices}\begin{environment}{choiceshoriz}\begin{environment}{choicescustom}\begin{environment}{tikz-single}\begin{environment}{tikz-multi}\begin{macro}{\AMCBoxedAnswers}
+%       Answers have to be included in an environment |choices|
+%       (standard), |choiceshoriz| (answers on one line) or
+%       |choicescustom| (user defined) depending on the desired
+%       formatting.
+%
+%       Use |\AMCBoxedAnswers| to request all answers to be included
+%       in \LaTeX{} boxes; this can be useful for example when using
+%       multicolumn answers formatting.
+%    \begin{macrocode}
+\def\AMCBoxedAnswers{\AMC@rbloctrue}
+\newenvironment{choices}[1][r]{%
+  \AMCrep@count=\z@\def\une@rep{\AMCrep@itemize}%
+  \ifAMC@rbloc\def\une@rep{\AMCrep@bloc}%
+  \else\begin{itemize}\setlength{\itemsep}{\AMCinterIrep}\fi%
+    \AMCrep@init{#1}}%
+  {\AMC@fin@rep\ifAMC@rbloc\else\end{itemize}\fi}
+\newenvironment{choiceshoriz}[1][r]{%
+  \AMCrep@count=\z@\def\une@rep{\AMCrep@ligne}\AMCrep@init{#1}%
+  \par\begin{center}}%
+  {\AMC@fin@rep\end{center}}
+\newenvironment{choicescustom}[1][r]{%
+  \AMCrep@count=\z@\def\une@rep{\AMCrep@perso}\AMCrep@init{#1}%
+  \AMCbeginAnswer\ignorespaces}%
+  {\AMC@fin@rep\AMCendAnswer}
+\newenvironment{tikz-single}[1][r]{
+\AMCrep@count=\z@\def\une@rep{\AMCrep@tikz}\AMCrep@init{#1}%
+\begin{tikzpicture}}{\AMC@fin@rep\end{tikzpicture}} 
+\newenvironment{tikz-multi}[1][r]{
+\AMCrep@count=\z@\def\une@rep{\AMCrep@tikzmat}\AMCrep@init{#1}%
+\begin{tikzpicture}[remember picture]}{\AMC@fin@rep\end{tikzpicture}}
+%    \end{macrocode}\end{macro}\end{environment}\end{environment}\end{environment}\end{environment}\end{environment}
+%
+% \begin{macro}{\AMCrep@bloc}\begin{macro}{\AMCrep@tikz}\begin{macro}{\AMCrep@tikzmat}\begin{macro}{\AMCrep@itemize}
+% \begin{macro}{\AMCrep@ligne}\begin{macro}{\AMCrep@perso}
+%     For each of these styles, a corresponding
+%     |\AMCrep@|$xxx$\marg{box}\marg{text} is defined, which will
+%     format the answer with a box given in \meta{box} and text
+%     \meta{text}. |\AMCrep@bloc| is also defined and used in standard
+%     formatting when the user wants to put answers inside a \LaTeX{}
+%     box.
+%    \begin{macrocode}
+\newcommand\AMCrep@bloc[2]{\AMC@mem@answer{#1}%
+  \par%
+  \ifAMC@textPos\vbox\bgroup\AMC@tracepos{1}{atext:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}\hbox\bgroup\AMC@tracepos{1}{atext:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}\fi%
+    \noindent\begin{minipage}{\linewidth}%
+      \begin{itemize}\item[#1] #2\end{itemize}\end{minipage}%
+    \ifAMC@textPos\AMC@tracepos{1}{atext:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}\egroup\AMC@tracepos{1}{atext:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}\egroup\fi%
+  \vspace{\AMCinterBrep}}
+ \newcommand\AMCrep@tikz[5]{\AMC@mem@answer{#1}\node[#4] (lab\thecsvrow) at (#3) {#2} node[#5] (box\thecsvrow) {#1};}
+\newcommand\AMCrep@tikzmat[5]{\AMC@mem@answer{#1}\node[#5] (box\thecsvrow) at (#3) {#1} node[#4] (lab\thecsvrow) {#2};}  
+\newcommand\AMCrep@itemize[2]{\AMC@mem@answer{#1}\item[#1] #2}
+\newlength\AMChorizAnswerSep
+\setlength{\AMChorizAnswerSep}{3em plus 4em}
+\newlength\AMChorizBoxSep
+\setlength{\AMChorizBoxSep}{1em}
+\newcommand\AMCrep@ligne[2]{\AMC@mem@answer{#1}%
+  \ifAMC@textPos%
+  \mbox{\AMC@tracebox{1}{atext:\AMCid@name:\the\AMCid@quest,\the\AMCrep@count}{#1\hspace*{\AMChorizBoxSep}#2}}%
+  \else%
+  \mbox{#1\hspace*{\AMChorizBoxSep}#2}%
+  \fi\hspace{\AMChorizAnswerSep}}
+\newcommand\AMCrep@perso[2]{\AMC@mem@answer{#1}\AMCanswer{#1}{#2}}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}\end{macro}\end{macro}\end{macro}
+%
+% \begin{macro}{\AMCbeginAnswer}\begin{macro}{\AMCendAnswer}\begin{macro}{\AMCanswer}
+%       The |custom| style will use user-defined commands to format
+%       answers: |\AMCbeginAnswer| is called once before answers,
+%       |\AMCanswer|\marg{box}\marg{text} is called for each answer
+%       (\meta{box} beeing the box to be ticked and \meta{text} the
+%       text associated with the proposed answer), and |\AMCendAnswer|
+%       is called after all answers.
+%    \begin{macrocode}
+\def\AMCbeginAnswer{}
+\def\AMCanswer#1#2{#1 #2}
+\def\AMCendAnswer{}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+%
+% \begin{macro}{\answer}\begin{macro}{\correctchoice}\begin{macro}{\wrongchoice}
+%     The commands |\correctchoice| and |\wrongchoice| are used inside
+%     |choices|-like environments to give the proposed answers and
+%     specify if they are to be tocked by the students or not.
+%
+%    \begin{macrocode}
+\newcommand{\correctchoice}[2][]{\global\advance\AMCrep@count\@ne\relax%
+  \ifAMC@calibration\AMCmessage{REP=\the\AMCrep@count:B}\fi%
+  \global\AMCune@bonnetrue%
+  \AMCload@@reponse{\une@rep{\ifAMC@correc\AMC@box{#1}{\AMC@checkedbox}%
+      \else\AMC@box{#1}{}\fi}{#2}}{\the\AMCrep@count}\ignorespaces}
+\newcommand{\wrongchoice}[2][]{\global\advance\AMCrep@count\@ne\relax%
+  \ifAMC@calibration\AMCmessage{REP=\the\AMCrep@count:M}\fi%
+  \AMCload@@reponse{\une@rep{\AMC@box{#1}{}}{#2}}{\the\AMCrep@count}%
+  \ignorespaces}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+%
+% \subsubsection{Score zones}
+% \begin{macro}{\AMCscoreZone}\begin{macro}{\AMCscoreZoneAnswerSheet}
+% The position of the scores on the annotated answer sheets can be
+% defined in the \LaTeX{} source file using
+% |\AMCsetScoreZone|\marg{options} (or
+% |\AMCsetScoreZoneAnswerSheet|\marg{options} for the answer sheets when
+% the separate answer sheet option is used).
+%
+% First begin with some helpers:
+% |\AMCemptybox|\marg{width}\marg{height}\marg{depth} draws an empty
+% box with specified dimensions, and |\AMCmarginNote|\marg{note} (code
+% from one of |sgmoye|'s comments on |tex.stackexchange.com|) prints a
+% marginal note in the left or right margin, depending on current the
+% position (usefull in |multicols| environment).
+%
+%    \begin{macrocode}
+\newcommand{\AMCemptybox}[3]{{%
+    \sbox0{}\wd0=#1\ht0=#2\dp0=#3\relax\box0}}
+\newlength\AMC@mn@test
+\newlength\AMC@mn@sep\AMC@mn@sep=4mm
+\newlength\AMC@mn@leftmargin
+\newlength\AMC@mn@rightmargin
+\newcommand\AMCmarginNote[1]{%
+  \begin{tikzpicture}[remember picture,overlay]%
+    \coordinate (here) at (0,0);%
+    \pgfextractx{\AMC@mn@test}{\pgfpointdiff{\pgfpointorigin}%
+      {\pgfpointanchor{current page}{center}}}%
+    \ifodd\thepage%
+      \AMC@mn@leftmargin=\oddsidemargin%
+      \AMC@mn@rightmargin=\evensidemargin%
+    \else
+      \AMC@mn@leftmargin=\evensidemargin%
+      \AMC@mn@rightmargin=\oddsidemargin%
+    \fi
+    \ifdim\AMC@mn@test < 1cm%
+      \draw (current page.east |- here)+(-\AMC@mn@rightmargin-1in+\AMC@mn@sep,0pt) node[anchor=text,align=left,text width=\AMC@mn@rightmargin+1in-\AMC@mn@sep]{\strut #1};%
+    \else%
+      \draw (current page.west |- here)+(0cm,0pt) node[anchor=text,align=right,text width=\AMC@mn@leftmargin+1in-\AMC@mn@sep]{\strut #1};%
+    \fi%
+  \end{tikzpicture}%
+}
+%    \end{macrocode}
+%
+% Define now different ways to place the score zone:
+% \begin{itemize}
+% \item[|none|] nowhere
+% \item[|question|] right after the question heading
+% \item[|margin|] in the margin, using |marginpar| (this does not work
+%   with |multicols| environment)
+% \item[|margins|] in the left or right margin, depending on the
+%   current position (needs |tikz| package)
+% \end{itemize}
+%
+%    \begin{macrocode}
+\newcommand{\AMC@sz@box}{\AMCemptybox{\AMC@sz@width}{\AMC@sz@height}{\AMC@sz@depth}}
+%
+\newcommand{\AMC@sz@callin@question}{\AMCscoreZone{\AMC@sz@box}}
+%
+\newcommand{\AMC@sz@callout@margin}{\hspace{0pt}\marginpar{\AMCscoreZone{\AMC@sz@box}}}
+%
+\newcommand{\AMC@sz@init@margins}{\PackageWarning{automultiplechoice}{Please run twice to get proper margin notes position.}}
+\newcommand{\AMC@sz@callout@margins}{\hspace{0pt}\AMCmarginNote{\AMCscoreZone{\AMC@sz@box}}}
+%    \end{macrocode}
+%
+% Let us now set up options handling.
+%
+%    \begin{macrocode}
+\newlength\AMC@sz@width
+\newlength\AMC@sz@height
+\newlength\AMC@sz@depth
+\def\AMC@sz@callout{}
+\def\AMC@sz@callin{}
+\define@key{AMCsz}{width}{\AMC@sz@width=#1}
+\define@key{AMCsz}{height}{\AMC@sz@height=#1}
+\define@key{AMCsz}{depth}{\AMC@sz@depth=#1}
+\define@key{AMCsz}{calloutside}{\def\AMC@sz@callout{#1}}
+\define@key{AMCsz}{callinside}{\def\AMC@sz@callin{#1}}
+\define@choicekey{AMCsz}{position}{none,question,margin,margins}{%
+  \ifcsname AMC@sz@callout@#1\endcsname%
+    \def\AMC@sz@callout{AMC@sz@callout@#1}%
+  \else%
+    \def\AMC@sz@callout{}%
+  \fi%
+  \ifcsname AMC@sz@callin@#1\endcsname%
+    \def\AMC@sz@callin{AMC@sz@callin@#1}%
+  \else%
+    \def\AMC@sz@callin{}%
+  \fi%
+  \ifcsname AMC@sz@init@#1\endcsname%
+    \csname AMC@sz@init@#1\endcsname%
+  \fi%
+}
+\newcommand{\AMCsetScoreZone}[1]{\setkeys{AMCsz}{#1}}
+\AMCsetScoreZone{width=1.5em,height=1.5ex,depth=.5ex,position=none}
+%    \end{macrocode}
+%
+% And do the same for |\AMCsetScoreZoneAnswerSheet|...
+%
+%    \begin{macrocode}
+\newcommand{\AMC@sza@box}{\AMCemptybox{\AMC@sza@width}{\AMC@sza@height}{\AMC@sza@depth}}
+%
+\newcommand{\AMC@sza@init@none}{}
+\newcommand{\AMC@sza@callout@none}{}
+\newcommand{\AMC@sza@callin@none}{}
+%
+\newcommand{\AMC@sza@init@question}{}
+\newcommand{\AMC@sza@callout@question}{}
+\newcommand{\AMC@sza@callin@question}{\AMCscoreZone{\AMC@sza@box}}
+%
+\newcommand{\AMC@sza@init@margin}{}
+\newcommand{\AMC@sza@callout@margin}{\hspace{0pt}\marginpar{\AMCscoreZone{\AMC@sza@box}}}
+\newcommand{\AMC@sza@callin@margin}{}
+%
+\newcommand{\AMC@sza@init@margins}{\PackageWarning{automultiplechoice}{Please run twice to get proper margin notes position.}}
+\newcommand{\AMC@sza@callout@margins}{\hspace{0pt}\AMCmarginNote{\AMCscoreZone{\AMC@sz@box}}}
+\newcommand{\AMC@sza@callin@margins}{}
+%
+\newlength\AMC@sza@width
+\newlength\AMC@sza@height
+\newlength\AMC@sza@depth
+\def\AMC@sza@callout{}
+\def\AMC@sza@callin{}
+\define@key{AMCsza}{width}{\AMC@sza@width=#1}
+\define@key{AMCsza}{height}{\AMC@sza@height=#1}
+\define@key{AMCsza}{depth}{\AMC@sza@depth=#1}
+\define@key{AMCsza}{calloutside}{\def\AMC@sza@callout{#1}}
+\define@key{AMCsza}{callinside}{\def\AMC@sza@callin{#1}}
+\define@choicekey{AMCsza}{position}{none,question,margin,margins}{%
+  \ifcsname AMC@sza@callout@#1\endcsname%
+    \def\AMC@sza@callout{AMC@sza@callout@#1}%
+  \else%
+    \def\AMC@sza@callout{}%
+  \fi%
+  \ifcsname AMC@sza@callin@#1\endcsname%
+    \def\AMC@sza@callin{AMC@sza@callin@#1}%
+  \else%
+    \def\AMC@sza@callin{}%
+  \fi%
+  \ifcsname AMC@sza@init@#1\endcsname%
+    \csname AMC@sza@init@#1\endcsname%
+  \fi%
+}
+\newcommand{\AMCsetScoreZoneAnswerSheet}[1]{\setkeys{AMCsza}{#1}}
+\AMCsetScoreZoneAnswerSheet{width=1.5em,height=1.5ex,depth=.5ex,position=none}
+\newcommand{\AMCnoScoreZone}{\AMCsetScoreZone{position=none}\AMCsetScoreZoneAnswerSheet{position=none}}
+%    \end{macrocode}
+%
+% \end{macro}\end{macro}
+% 
+% \subsubsection{Formatting questions}
+%
+% \begin{macro}{\AMCquestionaff}\begin{macro}{\AMC@stepQuestion}\begin{macro}{\AMC@qaff}
+%   The counter |\AMCquestionaff| keeps track of the current question
+%   number. It can be redefined by the user, for example to print
+%   several questions without a number, and then print questions with a
+%   number starting at one.
+%   
+%   |\AMC@stepQuestion| will increase this counter and |\AMC@qaff| will
+%   format the question number out.
+%    \begin{macrocode}
+\newcounter{AMCquestionaff}
+\newcommand{\AMCnumero}[1]{\setcounter{AMCquestionaff}{#1}\addtocounter{AMCquestionaff}{-1}}
+\AtBeginDocument{%
+  \ifx\@skiphyperreftrue\@undefined%
+    \expandafter\newif\csname if@skiphyperref\endcsname%
+  \fi%
+}
+\newcommand\AMC@stepQuestion{\ifAMCquestionNumber\@skiphyperreftrue\refstepcounter{AMCquestionaff}\@skiphyperreffalse\fi}
+\newcommand\AMC@qaff{\arabic{AMCquestionaff}}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+% 
+% \begin{macro}{\AMCbeforeQuestion}
+% \begin{macro}{\AMCbeginQuestion}\begin{macro}{\multiSymbole}
+%     The command |\AMCbeforeQuestion| opens a new question. The
+%     command |\AMCbeginQuestion|\marg{n}\marg{sign} will format the
+%     question header, where \meta{n} is the question number and
+%     \meta{sign} beeing |\multiSymbole| in case of a multiple
+%     question, and empty in case of a simple
+%     one. |\AMCbeforeQuestion|, |\AMCbeginQuestion| and
+%     |\multiSymbole| can be user-redifined.
+%    \begin{macrocode}
+\def\AMCbeforeQuestion{\ifAMC@qbloc\else\par\noindent\fi}
+\def\AMCbeginQuestion#1#2{\noindent\AMC@loc@q{#1}{#2}%
+  \ifx\@empty\AMC@sz@callin\@empty\hspace*{1em}\fi%
+}
+\def\multiSymbole{$\clubsuit$}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+% 
+% \begin{environment}{question}\begin{environment}{questionmult}\begin{environment}{variable-single}\begin{environment}{variable-multi}\begin{environment}{questionouverte}\begin{macro}{\ouverte@vs}
+%         Environment |{question}|\marg{key} encloses a simple question
+%         (with one and only one correct choice) with associated
+%         unique key \meta{key} and the proposed answers.
+%
+%         Environment |{questionmult}|\marg{key} is the same for
+%         multiple questions (with none, one or several correct
+%         choices).
+%
+%         Environment |{questionmultx}|\marg{key} is the same as
+%         |questionmult|, but with no use of |\multiSymbole|.
+%
+%         Environment |{questionouverte}|\oarg{width} is used for open
+%         questions (that won't be marked automatically!), with width
+%         given as an optional argument (defaults to 3\,cm).
+%
+%         The command |\AMCexternalQuestion|\marg{id}\marg{maxscore}
+%         allows to declare a question that will be scored outside
+%         AMC, with a maximal score \meta{maxscore}. When you use this
+%         command, you can manage the question number and question
+%         text freely (AMC won't handle this).
+%    \begin{macrocode}
+\ifx\question\undefined\else\let\question\undefined\fi
+\def\AMCnobloc{\AMC@qblocfalse}
+\def\AMCbloc{\AMC@qbloctrue}
+\newcommand\AMCstartWithQuestion[1]{%
+  \global\def\AMCid@name{#1}\AMC@affecte{#1}{\AMCid@quest}%
+  \ifAMC@calibration%
+    \AMCmessage{Q=\the\AMCid@quest}%
+    \immediate\write\AMC@XYFILE{\string\question{\the\AMCid@quest}{\AMCid@name}}%
+  \fi%
+}
+\newcommand\AMCexternalQuestion[2]{%
+  \AMCstartWithQuestion{#1}%
+  \ifAMC@calibration%
+    \AMCmessage{B=MAX=#2}%
+    \AMCmessage{MULT}%
+    \AMCmessage{FQ}%
+  \fi%
+}
+\newenvironment{question}[2][]{%
+  \def\AMCcurrentenv{question}%
+  \AMC@stepQuestion%
+  \AMCstartWithQuestion{#2}%
+  \AMCbeforeQuestion%
+  \ifx\@empty\AMC@sz@callout\@empty\else%
+    \csname\AMC@sz@callout\endcsname%
+  \fi%
+  \AMCtype@multifalse\ifAMC@qbloc\ifAMC@textPos\vbox\bgroup\AMC@tracepos{1}{qtext:#2:\the\AMCid@quest,0}\hbox\bgroup\AMC@tracepos{1}{qtext:#2:\the\AMCid@quest,0}\fi\noindent\begin{minipage}{\linewidth}\fi%
+  \ifAMC@affichekeys\index{\texttt{#2}}\ifAMC@keysline[\texttt{#2}]\newline\fi\fi%
+  \AMCbeginQuestion{\ifAMC@affichekeys\ifAMC@ensemble\AMC@qaff\ \fi\ifAMC@keysline\else[\texttt{#2}]\fi\else\AMC@qaff\fi}{#1}%
+  \ifx\@empty\AMC@sz@callin\@empty\else%
+    \csname\AMC@sz@callin\endcsname%
+  \fi%
+  \AMCformulaire@dedansfalse\setcounter{AMC@ncase}{0}%
+  \AMC@mem@openQuestion}%
+{\ifAMC@qbloc\end{minipage}\ifAMC@textPos\AMC@tracepos{1}{qtext:\AMCid@name:\the\AMCid@quest,0}\egroup\AMC@tracepos{1}{qtext:\AMCid@name:\the\AMCid@quest,0}\egroup\fi\vspace{\AMCinterBquest}\else\vspace{\AMCinterIquest}\fi\AMCmessage{FQ}\AMC@mem@add@ifneeded{\AMCformAfterQuestion}}
+\newenvironment{questionmult}[1]{%
+  \AMCune@bonnefalse\begin{question}[{{\multiSymbole}}]{#1}%
+  \AMCtype@multitrue\ifAMC@calibration%
+  \AMCmessage{MULT}\fi}%
+{\end{question}}
+\newenvironment{variable-single}[2]
+{\def\AMCbeginQuestion##1##2{}  
+\begin{questionmult}{#1}\scoring{v=#2}
+\begin{tikz-single}[o]}
+{\end{tikz-single}
+\end{questionmult}}
+\newenvironment{variable-multi}[4]
+{\def\AMCbeginQuestion##1##2{}  
+\begin{questionmult}{#1}\scoring{v=#4}
+\begin{tikz-multi}[o]
+\node[#3] (var) at (0,0) {#2};}		
+{\end{tikz-multi}
+\end{questionmult}}
+\newenvironment{questionmultx}[1]{%
+  \begingroup\def\multiSymbole{}\begin{questionmult}{#1}}%
+{\end{questionmult}\endgroup}
+\newdimen\ouverte@vs
+\newenvironment{questionouverte}[1][3cm]{%
+  \AMC@stepQuestion%
+  \AMCtype@multifalse\ouverte@vs=#1%
+  \ifAMC@qbloc\noindent\begin{minipage}{\linewidth}\fi%
+  \AMCbeginQuestion{\AMC@qaff}{}}%
+{\vspace*{\ouverte@vs}\ifAMC@qbloc\end{minipage}\vspace{3ex}\fi}
+%    \end{macrocode}\end{macro}\end{environment}\end{environment}\end{environment}\end{environment}\end{environment}
+%
+% \subsubsection{Explanations}
+%
+% \begin{macro}{\explain}
+%   The command |\explain|\marg{text} is used inside |question|-like environments
+%   to give the explanation for the answers of a question. The command
+%   |\explaincontext|\marg{text} inserts its argument only in the corrected paper.
+%    \begin{macrocode}
+\newcommand{\explain}[1]{%
+\ifAMC@correchead%
+  \AMCif@env{question}{\par\noindent{\AMC@loc@explain #1}}{\AMC@error@explain}\vspace{1ex}%
+\else%
+  \AMCif@env{question}{}{\AMC@error@explain}%
+\fi%
+}
+\newcommand{\explaincontext}[1]{%
+\ifAMC@correc%
+#1%
+\fi%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsection{Scoring}
+%
+% \begin{macro}{\scoring}\begin{macro}{\scoringDefaultS}\begin{macro}{\scoringDefaultM}\begin{macro}{\QuestionIndicative}
+%         Scoring strategies are simply transmitted to the |.amc| file
+%         for later analysis.
+%         
+%         |\scoring|\marg{scrore} details the scoring strategy for
+%         current question or current answer,
+%         |\scoringDefaultS|\marg{score} and
+%         |\scoringDefaultM|\marg{score} gives default scoring
+%         strategy for simple and multiple questions, and
+%         |\QuestionIndicative| tells that the current question is not
+%         no be taken into account in the global mark.
+%    \begin{macrocode}
+\def\scoring#1{\ifAMC@calibration\AMCmessage{B=#1}\fi}
+\def\scoringDefaultS#1{\ifAMC@calibration\AMCmessage{BDS=#1}\fi}
+\def\scoringDefaultM#1{\ifAMC@calibration\AMCmessage{BDM=#1}\fi}
+\def\QuestionIndicative{\ifAMC@calibration\AMCmessage{INDIC}\fi}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}\end{macro}
+%
+% \subsection{Numerical data}
+%
+% \subsubsection{Codes}
+%
+% \begin{macro}{\AMCcodeGrid}\begin{macro}{\AMCcodeGridInt}
+% \noindent\begin{minipage}[t]{.65\linewidth}
+%   Students can code some numerical information (such as student
+%   number) through special questions, which can be formatted easily
+%   with the command |\AMCcodeGrid|\oarg{opts}\marg{key}\marg{descr},
+%   where \meta{key} is a key prefix and \meta{descr} is a
+%   coma-separated list of character pools to offer. The characters
+%   entered by the student will be available through the questions
+%   \meta{key}|[1]|$,\ldots,$\meta{key}|[|\meta{length(descr)}|]|.
+%
+%   As an example,
+%
+%   |\AMCcodeGrid{code}{ABCD,012345,012345,012345,012345}|
+%   produces the opposite boxes (two results are show here: without or
+%   with |separateanswersheet| option), and trace positions of all the
+%   boxes in the |.xy| file with the |code| identifier: the first
+%   digit is represented by question with key |code[6]|, the second by
+%   question with key |code[5]|, and so on.
+%
+%   Positions of the boxes are logged in the |.xy| file, as shown in
+%   section~\ref{a:code} for the first set of boxes (without
+%   |separateanswersheet|, with digits outside boxes).
+% \end{minipage}\hfill
+% \begin{minipage}[t]{.3\linewidth}
+%   \begin{amcxyfile}{xy3}\AMCcodeGrid{code}{ABCD,012345,012345,012345,012345}\end{amcxyfile}
+%
+% \vspace{4mm}
+%   \makeatletter\AMC@ensembletrue\makeatother
+%   \AMCcodeGrid{code}{ABCD,012345,012345,012345,012345}
+% \end{minipage}
+% \vspace{4mm}
+%
+% \noindent\begin{minipage}[t]{.35\linewidth}
+%   The ``horizontal'' version can also be considered using option |h|,
+%   especially with a small number of digits. See opposite for the
+%   result of |\AMCcodeGrid[h]{code}{ABCDEF,0123456789,0123456789}|.
+% \end{minipage}\hfill
+% \begin{minipage}[t]{.6\linewidth}
+%   \AMCcodeGrid[h]{code}{ABCDEF,0123456789,0123456789}
+% \end{minipage}
+%
+% The |\AMCcodeGridInt|\oarg{opts}\marg{key}\marg{n} is a shorcut for
+% calling |\AMCcodeGrid| with \meta{n} digits from 0 to 9. This allows
+% to create grids for \meta{n}-digits integers easily.
+%
+% These two commands supports the following options (given as a
+% comma-separated list optional argument \meta{opts}):
+% \begin{itemize}
+% \item |vertical|=|true| or |false| to indicate the direction to be used (default is |true|);
+% \item |h| is a shortcut for |vertical=false|;
+% \item |v| is a shortcut for |vertical=true|;
+% \item |top| to request top-aligned columns in vertical direction.
+% \item |multi| for codes that are repeated on each page.
+% \end{itemize}
+%
+%    \begin{macrocode}
+\newcount\AMC@chiffres
+\newdimen\AMCcodeHspace\AMCcodeHspace=.5em
+\newdimen\AMCcodeVspace\AMCcodeVspace=.5em
+\newcommand\AMCcodeID@squarebrackets[2]{#1[#2]}
+\newcommand\AMCcodeID@dot[2]{#1.#2}
+\newcommand\AMCcodeID@@[1]{%
+  \expandafter\def\expandafter\AMCcodeID\expandafter{\csname AMCcodeID@#1\endcsname}%
+  \def\AMCcodeID@mode{#1}%
+}
+\AMCcodeID@@{squarebrackets}
+\ExplSyntaxOn
+
+\clist_new:N \amc_code_descr_clist
+\seq_new:N \amc_code_digits_seq
+\int_new:N \amc_code_digit_n_int
+\bool_new:N \amc_code_vertical_bool
+\bool_new:N \amc_code_top_bool
+\bool_new:N \amc_code_multi_bool
+\clist_new:N \amc__multi_clist
+
+\cs_new:Npn \amc_code_init:N #1 {
+  \def\AMCbeginQuestion##1##2{}
+  \def\AMCbeforeQuestion{}
+  \AMCnoScoreZone
+  \AMCquestionNumberfalse
+  \setlength{\parindent}{0pt}
+  \AMCnobloc
+  \int_set:Nn \amc_code_digit_n_int { \clist_count:N #1 }
+}
+
+\cs_new:Nn \amc_code_digit_init: {
+  \QuestionIndicative
+  \global\AMCrep@count=\z@
+}
+
+\cs_new:Npn \amc_code_digit:n #1 {
+  \global\advance\AMCrep@count\@ne\relax
+  \ifAMC@calibration\AMCmessage{ REP = \the\AMCrep@count : M }\fi
+  \hbox{\AMC@keyBox@{#1}{}{1}{case : \AMCid@name : \the\AMCid@quest , \the\AMCrep@count}}
+  \bool_if:NTF \amc_code_vertical_bool {
+    \vspace{\AMCcodeVspace}
+  }{
+    \hspace{\AMCcodeHspace}
+  }
+}
+
+\keys_define:nn { amccode } {
+  vertical .bool_set:N = \amc_code_vertical_bool,
+  vertical .initial:n = { true },
+  vertical .default:n = { true },
+  v .code:n = { \bool_set_true:N \amc_code_vertical_bool },
+  h .code:n = { \bool_set_false:N \amc_code_vertical_bool },
+  top .bool_set:N = \amc_code_top_bool,
+  top .initial:n = { false },
+  top .default:n = { true },
+  multi .bool_set:N = \amc_code_multi_bool,
+  multi .initial:n = { false },
+  multi .default:n = { true }
+}
+
+\cs_new_nopar:Nn \amc_multi_report: {
+  \ifAMC@calibration
+  \immediate\write\AMC@XYFILE{\string\with{multi=\clist_use:Nn\amc__multi_clist{,}}}
+  \fi
+}
+\cs_new_eq:NN \AMC@multi@report \amc_multi_report:
+\int_new:N \amc_multi_count_int
+\cs_new_nopar:Nn \amc_multi_clear: {
+  \int_gzero:N \amc_multi_count_int
+}
+\cs_new_eq:NN \AMC@multiclear \amc_multi_clear:
+
+\cs_new:Npn \amc_code_generate:nNn #1#2#3 {
+  { \keys_set:nn { amccode } { #3 }
+    \bool_if:NTF \amc_code_multi_bool {
+      \clist_gset:Nn \amc__multi_clist { #1 }
+    } {}
+    \bool_if:NTF \amc_code_multi_bool { \int_gincr:N \amc_multi_count_int } {}
+    \amc_code_init:N #2
+    \clist_map_inline:Nn #2 { % iterates over 'digits'
+      \begin{question}{
+          \AMCcodeID{ #1 \bool_if:NTF 
+            \amc_code_multi_bool
+            { * \int_use:N \amc_multi_count_int } {} }
+          { \int_use:N \amc_code_digit_n_int }
+        }
+        \amc_code_digit_init:
+        \seq_set_split:Nnn \amc_code_digits_seq {} { ##1 }
+        \bool_if:NTF \amc_code_vertical_bool {
+          \hspace{0pt}
+          \bool_if:NTF \amc_code_top_bool { \vtop } { \vbox }
+          \bgroup
+        }{
+          \hbox\bgroup
+        }
+        \seq_map_inline:Nn \amc_code_digits_seq {
+          % iterates over available characters for 'digit'
+          \amc_code_digit:n { ####1 }
+        }
+        \bool_if:NTF \amc_code_vertical_bool {
+          \vspace{-\AMCcodeVspace}\egroup
+          \hspace{\AMCcodeHspace}
+        }{
+          \egroup\vspace{\AMCcodeVspace}
+          \par
+        }
+      \end{question}
+      \int_decr:N \amc_code_digit_n_int
+    }
+  }
+}
+
+\cs_new:Npn \amc_code_generate:nnn #1#2#3 {
+  \clist_set:Nn \amc_code_descr_clist { #2 }
+  \amc_code_generate:nNn { #1 } \amc_code_descr_clist { #3 }
+}
+\cs_generate_variant:Nn \amc_code_generate:nnn { xxx }
+\newcommand{\AMCcodeGrid}[3][]{
+  \amc_code_generate:xxx { #2 } { #3 } { #1 }
+}
+
+\cs_new:Npn \amc_code_generate_integer:nnn #1#2#3 {
+  \clist_clear:N \amc_code_descr_clist
+  \prg_replicate:nn { #2 } { \clist_put_right:Nn \amc_code_descr_clist { 0123456789 } }
+  \amc_code_generate:nNn { #1 } \amc_code_descr_clist { #3 }
+}
+\cs_generate_variant:Nn \amc_code_generate_integer:nnn { xxx }
+\newcommand{\AMCcodeGridInt}[3][]{
+  \amc_code_generate_integer:xxx { #2 } { #3 } { #1 }
+}
+
+\cs_new:Npn \amc_code_generate_integer_v:nn #1#2 {
+  \amc_code_generate_integer:nnn { #1 } { #2 } { v }
+}
+\cs_new:Npn \amc_code_generate_integer_h:nn #1#2 {
+  \amc_code_generate_integer:nnn { #1 } { #2 } { h }
+}
+\cs_generate_variant:Nn \amc_code_generate_integer_v:nn { xx }
+\cs_generate_variant:Nn \amc_code_generate_integer_h:nn { xx }
+\cs_new_eq:NN \AMCcode \amc_code_generate_integer_v:xx
+\cs_new_eq:NN \AMCcodeH \amc_code_generate_integer_h:xx
+
+\ExplSyntaxOff
+%    \end{macrocode}\end{macro}\end{macro}
+%
+% \subsubsection{Numerical questions}
+%
+% \begin{macro}{\AMCnumericChoices}
+%   The command |\AMCnumericChoices|\marg{correct}\marg{options} can be
+%   used as a replacement for the |choices| environment when the
+%   questions asks for a numeric value to code on the answer sheet.
+%
+%   As an example, 
+% produces (in correction mode):
+%
+% \begin{center}
+% {\makeatletter\AMC@correctrue\makeatother
+% \fbox{
+% \begin{minipage}{.7\linewidth}
+%   \begin{question}{product}
+%     What is the value of $7\times 5$?
+%     \AMCnumericChoices{35}{digits=2,sign=false}
+%   \end{question}
+% \end{minipage}}}
+% \end{center}
+%
+% \noindent and these boxes are only shown on the separate answer sheet if the
+% |separateanswersheet| option is used.
+%
+% This command uses the
+% |\AMCformatChoices|\marg{showcommand}\marg{hidecommand}\marg{arg1}\marg{arg2}
+% command, that calls either \meta{hidecommand}\marg{arg1}\marg{arg2}
+% if the |separateanswersheet| option is used and if we are currently
+% in the question part (not in the answer sheet), or
+% \meta{showcommand}\marg{arg1}\marg{arg2} when all the boxes are to
+% be produced.
+% 
+%    \begin{macrocode}
+\newcommand\AMCformatChoices[4]{%
+  \global\AMCrep@count=\z@%
+  \AMC@if@separate@question{%
+    \AMC@mem@add{\global\AMCrep@count=\z@%
+                #1{#3}{#4}}%
+  }%
+  \ifAMC@ensemble%
+    #2{#3}{#4}%
+    \AMCmessage{QPART}%
+  \else%
+    #1{#3}{#4}%
+  \fi%
+}
+%    \end{macrocode}
+%
+% Some computation commands are now defined. The command
+% |\amc_fp_decompose:NNn|\marg{fp var}\marg{int var}\marg{x} sets
+% \meta{fp var} to be the \emph{mantissa} and \meta{int var} the
+% \emph{exponent} of the flaoting point number \meta{x}. For example,
+% |\amc_fp_decompose:NNn\mant_fp\expo_int{123.456}| give the value
+% |1.23456| to |\mant_fp| and |2| to |\expo_int| (because
+% $123.456=1.23456\times 10^{2}$).
+%
+% The command |\amc_fp_to_digits:Nnnn|\marg{clist}\meta{x}\meta{n
+% digits}\meta{base} rounds the floating point number \meta{x} and
+% populates the comma separated list \meta{clist} with its \meta{n
+% digits} digits in base \meta{base}. An error is issued if \meta{x}
+% would have required more digits.
+%    \begin{macrocode}
+\ExplSyntaxOn
+
+\cs_generate_variant:Nn \tl_replace_once:Nnn { Nxn }
+
+\tl_new:N \amc_ee_tl
+\seq_new:N \amc_ee_seq
+%    \end{macrocode}
+% Note that with some versions of |l3fp-convert| (prior to
+% 2017-09-18), |\fp_to_scientific| leads to a `e' with catcode 12
+% (\emph{other}). We convert it to catcode \emph{letter} before
+% splitting.
+%    \begin{macrocode}
+\group_begin:
+\char_set_catcode_other:N E
+\tex_lowercase:D
+{
+  \cs_new:Npn \amc_read_scientific:NNn #1 #2 #3 {
+    \tl_set:Nn \amc_ee_tl { #3 }
+    \tl_replace_once:Nxn \amc_ee_tl { E } { e }
+    \seq_set_split:NnV \amc_ee_seq e \amc_ee_tl
+    \fp_set:Nn #1 { \seq_item:Nn \amc_ee_seq 1 }
+    \int_set:Nn #2 { \seq_item:Nn \amc_ee_seq 2 }
+  }
+}
+\group_end:
+
+\cs_generate_variant:Nn \amc_read_scientific:NNn { NNf, NNx }
+
+\fp_new:N \amc_fulls_fp
+\cs_new:Npn \amc_fp_decompose:NNn #1 #2 #3 {
+  \fp_set:Nn \amc_fulls_fp { #3 }
+%    \end{macrocode}
+% Note that with some versions of |l3fp-convert|, the exponent part is
+% omited for some values, so that we add |e 0|.
+%    \begin{macrocode}
+  \amc_read_scientific:NNx #1 #2
+  { \fp_to_scientific:N \amc_fulls_fp e 0 }
+}
+\cs_generate_variant:Nn \amc_fp_decompose:NNn { NNx }
+
+\fp_new:N \amc_num_mantissa_fp
+\int_new:N \amc_num_exponent_int
+\cs_new:Npn \amc_fp_n_significant_digits:Nnn #1 #2 #3 {
+  \amc_fp_decompose:NNn \amc_num_mantissa_fp \amc_num_exponent_int
+  { #2 }
+  \fp_set:Nn #1
+  { round(\amc_num_mantissa_fp * 10^((#3)-1)) }
+  \fp_compare:nTF { abs(#1) >= 10^(#3) }
+  {
+    \fp_set:Nn #1 { #1 / 10 }
+  } { }
+}
+
+\fp_new:N \amc_num_nsig_fp
+\cs_new:Npn \amc_fp_show_n_significant_digits:nn #1 #2 {
+  \amc_fp_n_significant_digits:Nnn \amc_num_nsig_fp { #1 } { #2 }
+}
+\cs_new_eq:NN \AMCsignificantDigits \amc_fp_show_n_significant_digits:nn
+
+\cs_new:Npn \amc_fp_show_significant_digits: {
+  \fp_use:N \amc_num_nsig_fp
+}
+\cs_new_eq:NN \AMCshowSignificantDigits \amc_fp_show_significant_digits:
+
+\cs_new:Npn \amc_fp_n_digits:Nnn #1 #2 #3 {
+  \fp_set:Nn #1
+    { round((#2) * 10^(#3)) }
+}
+
+\int_new:N \amc_todigits_int
+\cs_new:Npn \amc_fp_to_digits:Nnnn #1 #2 #3 #4 {
+  \clist_clear:N #1
+  \int_set:Nn \amc_todigits_int { \fp_eval:n { abs(round(#2)) } }
+  \prg_replicate:nn { #3 } {
+    \clist_put_left:Nx #1 { \int_mod:nn \amc_todigits_int { #4 } }
+    \int_set:Nn \amc_todigits_int
+    { \int_div_truncate:nn \amc_todigits_int { #4 } }
+  }
+  \int_compare:nNnTF \amc_todigits_int = 0 { } {
+    \message{^^J!~Error:~number~too~large,
+      ~some~digits~will~be~discarded^^J}
+  }
+}
+
+\cs_new:Npn \amc_invalid_digits:Nn #1 #2 {
+  \clist_clear:N #1
+  \prg_replicate:nn { #2 } { \clist_put_left:Nx #1 { -1 } }
+}
+
+\cs_new:Npn \amc_get_fp_sign:Nn #1 #2 {
+  \fp_compare:nNnTF #2 < 0 {
+    \int_set:Nn #1 { -1 }
+  }{
+    \fp_compare:nNnTF #2 > 0 {
+      \int_set:Nn #1 { 1 }
+    }{
+      \int_set:Nn #1 { 0 }
+    }
+  }
+}
+
+\cs_new:Npn \amc_get_int_sign:Nn #1 #2 {
+  \int_compare:nNnTF #2 < 0 {
+    \int_set:Nn #1 { -1 }
+  }{
+    \int_compare:nNnTF #2 > 0 {
+      \int_set:Nn #1 { 1 }
+    }{
+      \int_set:Nn #1 { 0 }
+    }
+  }
+}
+
+\ExplSyntaxOff
+%    \end{macrocode}
+% 
+% The command
+% |\AMCnumericShow|\marg{value}\marg{opts} is
+% called to draw all necessary boxes to code a numerical value
+% \meta{value} with options given as a comma separated list
+% \meta{opts}. |\AMCnumericOpts|\marg{opts} can be used to set some
+% default values for these options.
+%
+% Begin with the available options:
+%    \begin{macrocode}
+\def\AMCntextGoto{}
+\def\AMCntextVHead#1{\emph{b#1}}
+\newdimen\AMCnumeric@Hspace\AMCnumeric@Hspace=.5em
+\newdimen\AMCnumeric@Vspace\AMCnumeric@Vspace=1ex
+\ExplSyntaxOn
+
+\keys_define:nn { amcnumeric } {
+  Tsign .code:n = {\def\AMCntextSign{#1}},
+  Tsign .initial:n = {},
+  Tpoint .code:n = {\def\AMCdecimalPoint{#1}},
+  Tpoint .initial:n = { \raisebox{1ex}{\bf .} },
+  Texponent .code:n = {\def\AMCexponent{#1}},
+  Texponent .initial:n = { $\times10$\textasciicircum },
+  vspace .code:n = {\AMCnumeric@Vspace=#1},
+  hspace .code:n = {\AMCnumeric@Hspace=#1},
+  bordercol .code:n = {\def\AMCncol@Border{#1}},
+  bordercol .initial:n = { lightgray },
+  borderwidth .code:n = {\def\AMCncol@BorderWidth{#1}},
+  borderwidth .initial:n = { 1mm },
+  backgroundcol .code:n = {\def\AMCncol@Background{#1}},
+  backgroundcol .initial:n = { white },
+  digits .int_set:N = \amc_num_ndigits_int,
+  digits .initial:n = { 3 },
+  decimals .int_set:N = \amc_num_decd_int,
+  decimals .initial:n = { 0 },
+  exponent .int_set:N = \amc_num_expo_int,
+  exponent .initial:n = { 0 },
+  base .int_set:N = \amc_num_base_int,
+  base .initial:n = { 10 },
+  sign .bool_set:N = \amc_num_sign_bool,
+  sign .initial:n = { true },
+  sign .default:n = { true },
+  exposign .bool_set:N = \amc_num_exposign_bool,
+  exposign .initial:n = { true },
+  exposign .default:n = { true },
+  strict .bool_set:N = \amc_num_strict_bool,
+  strict .initial:n = { false },
+  strict .default:n = { true },
+  scoring .bool_set:N = \amc_num_scoring_bool,
+  scoring .initial:n = { true },
+  scoring .default:n = { true },
+  ignoreblank .bool_set:N = \amc_num_ignoreblank_bool,
+  ignoreblank .initial:n = { false },
+  ignoreblank .default:n = { true },
+  vertical .bool_set:N = \amc_num_vertical_bool,
+  vertical .initial:n = { false },
+  vertical .default:n = { true },
+  expovertical .bool_set:N = \amc_num_expovertical_bool,
+  expovertical .initial:n = { false },
+  expovertical .default:n = { true },
+  reverse .bool_set:N = \amc_num_reverse_bool,
+  reverse .initial:n = { false },
+  reverse .default:n = { true },
+  vhead .bool_set:N = \amc_num_vhead_bool,
+  vhead .initial:n = { false },
+  vhead .default:n = { true },
+  nozero .bool_set:N = \amc_num_nozero_bool,
+  nozero .initial:n = { false },
+  nozero .default:n = { true },
+  significant .bool_set:N = \amc_num_significant_bool,
+  significant .initial:n = { false },
+  significant .default:n = { true },
+  scoreexact .code:n = {\def\AMC@numeric@scoreexact{#1}},
+  scoreexact .initial:n = { 2 },
+  scoreapprox .code:n = {\def\AMC@numeric@scoreapprox{#1}},
+  scoreapprox .initial:n = { 1 },
+  scorewrong .code:n = {\def\AMC@numeric@scorewrong{#1}},
+  scorewrong .initial:n = { 0 },
+  exact .int_set:N = \amc_num_exact_int,
+  exact .initial:n = { 0 },
+  approx .int_set:N = \amc_num_approx_int,
+  approx .initial:n = { 0 },
+  keepas .code:n = {\def\AMC@numeric@keepas{#1}},
+  keepas .initial:n = {},
+  alsocorrect .code:n = {\def\AMC@numeric@alsocorrect{#1}},
+  alsocorrect .initial:n = {}
+}
+
+\cs_new:Npn \amc_num_setopts #1 {
+  \keys_set:nn { amcnumeric } { #1 }
+}
+
+\cs_new_nopar:Nn \amc_num_check_score_opts: {
+  \bool_if:NTF \amc_num_ignoreblank_bool {
+    \int_compare:nNnTF \amc_num_base_int = { 10 } { } {
+      \message{^^J!~Error:~ignoreblank~can~only~be~used~with~number~base~10^^J}
+    }
+  } {}
+}
+
+\cs_new_eq:NN \AMCnumericOpts \amc_num_setopts
+
+%    \end{macrocode}
+%
+% The command |\amc_num_char:nn|\marg{inside}\marg{answer} draw a box
+% with content \meta{inside} (only if needed), where \meta{answer} is
+% |\AMC@checkedbox| if the corresponding choice is correct and empty
+% if not.
+%
+%    \begin{macrocode}
+\cs_new:Npn \amc_num_char:nn #1 #2 {
+  \global\advance\AMCrep@count\@ne\relax
+  \AMCmessage{REP= \the\AMCrep@count :
+    \ifx#2\AMC@checkedbox B\else M\fi }
+  \ifAMC@correc
+    \protect\AMC@keyBox@{#1}{#2}{1}{case : \AMCid@name :
+      \the\AMCid@quest , \the\AMCrep@count}
+  \else
+    \protect\AMC@keyBox@{#1}{}{1}{case : \AMCid@name :
+      \the\AMCid@quest , \the\AMCrep@count}
+  \fi
+}
+%    \end{macrocode}
+% The command |\amc_num_digit_box:nn|\marg{i}\marg{j} draws a box for
+% current digit value \meta{i}, where \meta{j} is the correct value
+% for the current digit. If \meta{i} is greater than 9, it is converted to
+% a character from the English alphabet (A for 10, B for 11...)
+%    \begin{macrocode}
+\int_new:N \amc_num_digit_value_int
+\tl_new:N \amc_num_digit_value_tl
+\cs_new:Npn \amc_num_digit_box:nn #1 #2 {
+  \int_set:Nn \amc_num_digit_value_int { #1 }
+  \tl_set:Nn \amc_num_digit_value_tl {
+    \int_compare:nNnTF { \amc_num_digit_value_int } < { 10 }
+    { \int_to_arabic:n { \amc_num_digit_value_int } }
+    { \int_to_Alph:n { \amc_num_digit_value_int - 9 } }
+  }
+  \int_compare:nNnTF { #1 } = { #2 } {
+    \amc_num_char:nn{ \tl_use:N \amc_num_digit_value_tl }
+                    {\AMC@checkedbox}
+  } {
+    \amc_num_char:nn{ \tl_use:N \amc_num_digit_value_tl }
+                    {}
+  }
+}
+%    \end{macrocode}
+% The command |\amc_num_sign_boxes:Nn|\marg{sign}\marg{prefix}
+% draws two boxes for the students to code the sign (with a right
+% value given by the boolean \meta{negative}).
+%    \begin{macrocode}
+\cs_new:Npn \amc_num_sign_boxes:Nn #1 #2 {
+  \int_case:nn { #1 } {
+    { -1 } {
+      \hbox{\amc_num_char:nn{$+$}{}}
+      \vspace{\AMCnumeric@Vspace}
+      \AMCmessage{B=set. sign #2 =1}
+      \hbox{\amc_num_char:nn{$-$}{\AMC@checkedbox}}
+      \AMCmessage{B=set. sign #2 =-1}
+    }
+    { 1 } {
+      \hbox{\amc_num_char:nn{$+$}{\AMC@checkedbox}}
+      \vspace{\AMCnumeric@Vspace}
+      \AMCmessage{B=set. sign #2 =1}
+      \hbox{\amc_num_char:nn{$-$}{}}
+      \AMCmessage{B=set. sign #2 =-1}
+    }
+    { 0 } {
+      \hbox{\amc_num_char:nn{$+$}{}}
+      \vspace{\AMCnumeric@Vspace}
+      \AMCmessage{B=set. sign #2 =1}
+      \hbox{\amc_num_char:nn{$-$}{}}
+      \AMCmessage{B=set. sign #2 =-1}
+    }
+  }
+}
+%    \end{macrocode}
+% The command
+% |\amc_num_digit_boxes_h:nnn|\marg{varname}\marg{correct}\marg{maxdigit}
+% draws a serie of boxes for all possible values of a digit (from 0 to
+% \meta{maxdigit}), where the correct value is \meta{correct},
+% transmitting scoring data to AMC so that the vaiable \meta{varname}
+% will be set to the value chosen by the student.
+%    \begin{macrocode}
+\cs_new:Npn \amc_num_digit_boxes_h:nnn #1 #2 #3 {
+  \int_step_inline:nnnn
+  { \bool_if:NTF \amc_num_nozero_bool { 1 } { 0 } }
+  { 1 } { #3 - 1 } {
+    \amc_num_digit_box:nn { ##1 }{ #2 }
+    \AMCmessage{B= set. #1 = ##1}
+    \hspace{\AMCnumeric@Hspace}
+  }
+  \hspace{-\AMCnumeric@Hspace}
+}
+
+\cs_new:Npn \amc_num_digit_boxes_v:nnn #1 #2 #3 {
+  \int_step_inline:nnnn
+  { \bool_if:NTF \amc_num_nozero_bool { 1 } { 0 } }
+  { 1 } { #3 - 1 } {
+    \vbox{\hbox{
+        \amc_num_digit_box:nn { ##1 }{ #2 }
+      }}
+    \AMCmessage{B= set. #1 = ##1}
+    \int_compare:nNnTF { ##1 } < { #3 - 1 } {
+      \vspace{\AMCnumeric@Vspace}
+    } {}
+  }
+}
+
+\int_new:N \amc_num_first_digit_int
+\cs_new:Npn \amc_num_digit_boxes_vr:nnn #1 #2 #3 {
+  \int_set:Nn \amc_num_first_digit_int
+  { \bool_if:NTF \amc_num_nozero_bool { 1 } { 0 } }
+  \int_step_inline:nnnn { #3 - 1 } { -1 }
+  \amc_num_first_digit_int {
+    \vbox{\hbox{
+        \amc_num_digit_box:nn { ##1 }{ #2 }
+      }}
+    \AMCmessage{B= set. #1 = ##1}
+    \int_compare:nNnTF { ##1 } > \amc_num_first_digit_int {
+      \vspace{\AMCnumeric@Vspace}
+      } {}
+  }
+}
+%    \end{macrocode}
+% The command |\amc_num_integer_boxes_v:Nnn|\marg{correct
+% digits}\marg{prefix}\meta{decimals} draws boxes for integer entry,
+% without the sign.
+%    \begin{macrocode}
+\cs_new:Npn \amc_num_integer_boxes_v:Nnn #1 #2 #3 {
+%    \end{macrocode}
+% begin a loop over all digits,
+%    \begin{macrocode}
+  \int_set_eq:NN \amc_num_digit_int { \clist_count:N #1 }
+  \clist_map_inline:Nn #1 {
+%    \end{macrocode}
+% place the decimal point if necessary,
+%    \begin{macrocode}
+    \int_compare:nNnTF \amc_num_digit_int = { #3 } {
+      \hbox{ \AMCdecimalPoint }\hspace{\AMCnumeric@Hspace}
+    } { }
+%    \end{macrocode}
+% draw the box for this digit,
+%    \begin{macrocode}
+    \hbox{\vbox{
+        \bool_if:NTF \amc_num_vhead_bool {
+          \vbox{\hbox{\AMCntextVHead{ \int_eval:n
+                { \amc_num_digit_int - 1 } }}}
+          \vspace{\AMCnumeric@Vspace}
+        } { }
+        \bool_if:NTF \amc_num_reverse_bool {
+          \amc_num_digit_boxes_vr:nnn { #2
+            \int_to_Alph:n \amc_num_digit_int }
+          { ##1 } { \amc_num_base_int }
+        } {
+          \amc_num_digit_boxes_v:nnn { #2
+            \int_to_Alph:n \amc_num_digit_int }
+          { ##1 } { \amc_num_base_int }
+        }
+      }}
+%    \end{macrocode}
+% and end the loop over digits, adding space if this is not the last
+% one.
+%    \begin{macrocode}
+    \int_compare:nNnTF \amc_num_digit_int > 1 {
+      \hspace{\AMCnumeric@Hspace}
+    } { }
+    \int_decr:N \amc_num_digit_int
+  }
+}
+
+%    \end{macrocode}
+% The command |\amc_num_integer_boxes_h:Nnn|\marg{correct
+% digits}\marg{prefix}\meta{decimals} does the same, in horizontal mode.
+%    \begin{macrocode}
+
+\cs_new:Npn \amc_num_integer_boxes_h:Nnn #1 #2 #3 {
+  \vbox{
+    \int_set_eq:NN \amc_num_digit_int { \clist_count:N #1 }
+    \clist_map_inline:Nn #1 {
+      \int_compare:nNnTF
+      \amc_num_digit_int = { #3 } {
+        \hbox{ \AMCdecimalPoint }
+      } { }
+      \hbox{
+        \amc_num_digit_boxes_h:nnn { #2
+          \int_to_Alph:n \amc_num_digit_int }
+        { ##1 } \amc_num_base_int
+      }
+      \int_compare:nNnTF \amc_num_digit_int > 1 {
+        \vspace{\AMCnumeric@Vspace}
+      } { }
+      \int_decr:N \amc_num_digit_int
+    }}
+}
+
+%    \end{macrocode}
+% Finally, |\amc_num_integer_boxes:NnnNN|\marg{correct
+% digits}\marg{prefix}\marg{decimals}\marg{sign bool}\marg{sign} draws
+% boxes for integer entry, including the sign if \meta{sign bool} is
+% true. When using the |strict| option, check the + box for a null value.
+%    \begin{macrocode}
+
+\cs_new:Npn \amc_num_integer_boxes:NnnNN #1 #2 #3 #4 #5 {
+  \hbox{
+    \bool_if:NTF { #4 } {
+      \vbox{
+        \ifx\AMCntextSign\@empty\@empty\else
+        \hbox{\AMCntextSign}\vspace{\AMCnumeric@Vspace}\fi
+        \bool_if:NTF \amc_num_strict_bool {
+          \int_compare:nNnTF { #5 } = 0 {
+            \amc_num_sign_boxes:Nn { 1 } { #2 }
+          }{
+            \amc_num_sign_boxes:Nn { #5 } { #2 }
+          }
+        }{
+          \amc_num_sign_boxes:Nn { #5 } { #2 }
+        }
+      }
+      \hspace{.5em}
+      \vrule
+      \hspace{.5em}
+    } { }
+    \hbox{
+      \bool_if:NTF \amc_num_vertical_bool
+      \amc_num_integer_boxes_v:Nnn \amc_num_integer_boxes_h:Nnn
+      #1 { #2 } { #3 }
+    }
+  }
+}
+
+%    \end{macrocode}
+% The command |\amc_num_build_integer_scoring:Nnnnn|\marg{tl
+% var}\marg{sign bool}\marg{prefix}\marg{n}\marg{decimals} builds a
+% scoring to compute an integer from a serie of \meta{n}-digits boxes
+% (from which \meta{decimals} are for decimals), with name prefix
+% \meta{prefix}, using a sign variable if \meta{sign bool} is true.
+%    \begin{macrocode}
+
+\cs_new:Npn \amc_num_build_integer_scoring:Nnnnn #1 #2 #3 #4 #5 {
+  \amc_num_check_score_opts:
+  \tl_clear:N #1
+  \int_set_eq:NN \amc_num_digit_int { #4 }
+  \int_while_do:nNnn \amc_num_digit_int > 0 {
+    \bool_if:NTF \amc_num_strict_bool {
+      \AMCmessage{B=requires. #3
+        \int_to_Alph:n \amc_num_digit_int = 1}
+    } {
+      \AMCmessage{B=default. #3
+        \int_to_Alph:n \amc_num_digit_int =
+        \bool_if:NTF \amc_num_ignoreblank_bool { } { 0 }
+        }
+    }
+    \int_compare:nNnTF \amc_num_digit_int = #4 { } {
+      \bool_if:NTF \amc_num_ignoreblank_bool {
+        \tl_put_right:Nx #1 { ~.~ }
+        \int_compare:nNnTF \amc_num_digit_int = #5 {
+          \tl_put_right:Nx #1 { "." ~.~ }
+        } { }
+      } {
+        \tl_put_left:Nn #1 { ( }
+        \tl_put_right:Nx #1 { ) *
+          \int_use:N \amc_num_base_int + }
+      }
+    }
+    \tl_put_right:Nx #1
+    { #3 \int_to_Alph:n \amc_num_digit_int }
+    \int_decr:N \amc_num_digit_int
+  }
+  \bool_if:NTF \amc_num_ignoreblank_bool {
+    \tl_put_left:Nn #1 { ( 0 + ( }
+    \tl_put_right:Nn #1 { ) ) }
+    \int_compare:nNnTF \amc_num_decd_int > 0 {
+      \tl_put_right:Nx #1 { * ( 10 ** \int_eval:n { #5 } ) }
+    } { }
+  } {
+    \tl_put_left:Nn #1 { ( }
+    \tl_put_right:Nn #1 { ) }
+  }
+  \bool_if:NTF { #2 } {
+    \bool_if:NTF \amc_num_strict_bool {
+      \AMCmessage{B=requires. sign #3 =1}
+    } {
+      \AMCmessage{B=default. sign #3 =1}
+    }
+    \tl_put_right:Nx #1 { * ( sign #3 ) }
+  } { }
+}
+
+%    \end{macrocode}
+% Then the command |\AMCnumericShow|\marg{x}\marg{options} itself:
+%    \begin{macrocode}
+
+\fp_new:N \amc_num_result_fp
+\fp_new:N \amc_num_correct_fp
+\clist_new:N \amc_num_digits_clist
+\clist_new:N \amc_num_expo_digits_clist
+\int_new:N \amc_num_digit_int
+\int_new:N \amc_num_sign_int
+\int_new:N \amc_num_expo_sign_int
+\tl_new:N \amc_num_compute_tl
+\tl_new:N \amc_num_expo_tl
+\int_new:N \amc_num_correct_expo_int
+
+\cs_new:Npn \amc_numeric_show:nn #1 #2 {
+%    \end{macrocode}
+% We have to tell AMC that the scoring we will give concerns this
+% question:
+%    \begin{macrocode}
+  \ifAMC@ensemble\ifAMCformulaire@dedans
+    \AMCmessage{Q=\the\AMCid@quest}
+  \fi\fi
+%    \end{macrocode}
+% Then we parse the options from \meta{opts}:
+%    \begin{macrocode}
+  {\keys_set:nn { amcnumeric } { #2 }
+    \bool_if:nTF { \bool_if_p:N\amc_num_significant_bool
+      && \int_compare_p:n { \amc_num_base_int != 10 } } {
+      \message{^^J!~AMCnumeric~Error:~significant=true~can't~be~used~with~base!=10.^^J}
+    } {}
+    \bool_if:nTF { \int_compare_p:n { \amc_num_expo_int != 0 }
+      && \int_compare_p:n { \amc_num_base_int != 10 } } {
+      \message{^^J!~AMCnumeric~Error:~scientific~notation~can't~be~used~with~base!=10.^^J}
+    } {}
+%    \end{macrocode}
+% Convert the floating point correct value to integer, taking into
+% account the parameters |significant|, |exponent| and |decimals|:
+%    \begin{macrocode}
+   \ifx\@empty#1\@empty
+     \fp_set:Nn \amc_num_correct_fp { 0 }
+     \fp_set:Nn \amc_num_mantissa_fp { 0 }
+     \int_set:Nn \amc_num_correct_expo_int { 0 }
+   \else
+   \bool_if:NTF \amc_num_significant_bool {
+     \amc_fp_n_significant_digits:Nnn \amc_num_correct_fp { #1 } \amc_num_ndigits_int
+   } {
+     \int_compare:nNnTF \amc_num_expo_int > 0 {
+       \amc_fp_decompose:NNn \amc_num_mantissa_fp \amc_num_correct_expo_int { #1 }
+       \int_compare:nNnTF { \amc_num_ndigits_int - \amc_num_decd_int } > 1 {
+         \fp_set:Nn \amc_num_mantissa_fp {
+           \amc_num_mantissa_fp * 10^( \amc_num_ndigits_int - \amc_num_decd_int - 1 )
+         }
+         \int_set:Nn \amc_num_correct_expo_int {
+           \amc_num_correct_expo_int - ( \amc_num_ndigits_int - \amc_num_decd_int - 1 )
+         }
+       } {}
+       \amc_fp_n_digits:Nnn \amc_num_correct_fp \amc_num_mantissa_fp \amc_num_decd_int
+     } {
+       \amc_fp_n_digits:Nnn \amc_num_correct_fp { #1 } \amc_num_decd_int
+     }
+   }
+   \fi
+%    \end{macrocode}
+% Now extracts the required digits:
+%    \begin{macrocode}
+   \ifx\@empty#1\@empty
+     \amc_invalid_digits:Nn \amc_num_digits_clist \amc_num_ndigits_int
+     \amc_invalid_digits:Nn \amc_num_expo_digits_clist \amc_num_expo_int
+     \int_set:Nn \amc_num_sign_int { 0 }
+     \int_set:Nn \amc_num_expo_sign_int { 0 }
+   \else
+     \amc_fp_to_digits:Nnnn \amc_num_digits_clist \amc_num_correct_fp
+       \amc_num_ndigits_int \amc_num_base_int
+     \amc_get_fp_sign:Nn \amc_num_sign_int \amc_num_correct_fp
+     \int_compare:nNnTF \amc_num_expo_int > 0 {
+       \amc_fp_to_digits:Nnnn \amc_num_expo_digits_clist \amc_num_correct_expo_int
+         \amc_num_expo_int \amc_num_base_int
+       \amc_get_int_sign:Nn \amc_num_expo_sign_int \amc_num_correct_expo_int
+     } {}
+   \fi    
+%    \end{macrocode}
+% The question scoring is given to AMC (if requested by the
+% |scoring=true| option). Note that the variable |intV| refers to the
+% correct value, and |intX| to the value entered by the student.
+%    \begin{macrocode}
+   \fp_set:Nn \amc_num_result_fp { #1 }
+   \AMCmessage{B=numval=\fp_to_scientific:N \amc_num_result_fp ,
+     numex=\int_use:N \amc_num_exact_int,
+     numapp=\int_use:N \amc_num_approx_int,
+     numsex=\AMC@numeric@scoreexact,
+     numsapp=\AMC@numeric@scoreapprox
+   }
+   \bool_if:NTF \amc_num_scoring_bool {
+     \AMCmessage{B=haut=,mz=,d=undef,p=undef,
+       formula=(Vdifference <= \int_use:N \amc_num_exact_int ?
+       \AMC@numeric@scoreexact :
+       \int_compare:nNnTF \amc_num_approx_int = 0 {
+         \AMC@numeric@scorewrong
+       } {
+         (Vdifference <= \int_use:N\amc_num_approx_int ?
+           \AMC@numeric@scoreapprox : \AMC@numeric@scorewrong)
+       }
+       )}
+   } {}
+   \amc_num_build_integer_scoring:Nnnnn
+     \amc_num_compute_tl \amc_num_sign_bool { digit } \amc_num_ndigits_int
+     \amc_num_decd_int
+   \int_compare:nNnTF \amc_num_expo_int > 0 {
+     \amc_num_build_integer_scoring:Nnnnn
+       \amc_num_expo_tl \amc_num_exposign_bool { expo } \amc_num_expo_int  { 0 }
+     \AMCmessage{B= set. intE = \amc_num_expo_tl}
+   } {}
+   \AMCmessage{B= set.intV = \fp_to_int:N\amc_num_correct_fp ,
+     set.intXX = \amc_num_compute_tl }
+   \int_compare:nNnTF \amc_num_expo_int > 0 {
+     \AMCmessage{B= set.intX = intXX * \int_use:N\amc_num_base_int **( intE - (\int_use:N\amc_num_correct_expo_int) )}
+   }{
+     \AMCmessage{B= set.intX = intXX}
+   }
+   \int_compare:nNnTF \amc_num_expo_int > 0 {
+     \AMCmessage{B= set.valueX = intXX * \int_use:N\amc_num_base_int ** (intE - \int_use:N\amc_num_decd_int)}
+   }{
+     \AMCmessage{B= set.valueX = intXX * \int_use:N\amc_num_base_int ** (- \int_use:N\amc_num_decd_int)}
+   }
+   \ifx\@empty\AMC@numeric@keepas\@empty\else
+   \AMCmessage{B= setglobal.\AMC@numeric@keepas = valueX}
+   \fi
+   \ifx\@empty#1\@empty
+   \bool_if:NTF \amc_num_significant_bool {
+     \AMCmessage{B=set.Vdifference=0}
+   }{
+     \ifx\@empty\AMC@numeric@alsocorrect\@empty
+       \AMCmessage{B=set.Vdifference=0}
+     \else
+       \AMCmessage{B="set.Vdifference =
+         amcvdifference( \AMC@numeric@alsocorrect, valueX, \int_use:N\amc_num_decd_int, \int_use:N\amc_num_expo_int)
+         "}
+     \fi
+   }
+   \else
+   \bool_if:NTF \amc_num_significant_bool {
+     \AMCmessage{B=set.Vdifference="min( abs((intV)-(intX)) ,
+       abs(\int_use:N\amc_num_base_int * (intV) - (intX)) ,
+       abs((intV) - \int_use:N\amc_num_base_int * (intX)) )"}
+   } {
+     \ifx\@empty\AMC@numeric@alsocorrect\@empty
+     \AMCmessage{B=set.Vdifference=abs((intV)-(intX))}
+     \else
+     \AMCmessage{B="set.Vdifference =
+       min( amcvdifference( \AMC@numeric@alsocorrect, valueX, \int_use:N\amc_num_decd_int, \int_use:N\amc_num_expo_int),
+       abs((intV)-(intX)) )"}
+     \fi
+   }
+   \fi
+%    \end{macrocode}
+% Begin now with the frame around all the boxes:
+%    \begin{macrocode}
+  \ifAMC@extractOnly\else
+  \vspace{1.5ex}\par{
+    \fboxrule=\AMCncol@BorderWidth
+    \fcolorbox{\AMCncol@Border}{\AMCncol@Background}{
+      \bool_if:NTF \amc_num_expovertical_bool {
+        \hbox{\vbox{
+          \vbox{\amc_num_integer_boxes:NnnNN
+          \amc_num_digits_clist { digit } \amc_num_decd_int \amc_num_sign_bool
+          \amc_num_sign_int}
+          \int_compare:nNnTF \amc_num_expo_int > 0 {
+            \vspace{\AMCnumeric@Vspace}
+            \vbox{\hbox{\AMCexponent}}
+            \vspace{\AMCnumeric@Vspace}
+            \vbox{\amc_num_integer_boxes:NnnNN
+              \amc_num_expo_digits_clist { expo } { 0 } \amc_num_exposign_bool
+              \amc_num_expo_sign_int}
+          } {}
+        }}
+      } {
+        \amc_num_integer_boxes:NnnNN
+        \amc_num_digits_clist { digit } \amc_num_decd_int \amc_num_sign_bool
+        \amc_num_sign_int
+        \int_compare:nNnTF \amc_num_expo_int > 0 {
+          \hspace{\AMCnumeric@Hspace}\AMCexponent\hspace{\AMCnumeric@Hspace}
+          \amc_num_integer_boxes:NnnNN
+          \amc_num_expo_digits_clist { expo } { 0 } \amc_num_exposign_bool
+          \amc_num_expo_sign_int
+        } {}
+      }
+    }
+  }
+  \fi
+%    \end{macrocode}
+% And tell AMC that we finished with this question:
+%    \begin{macrocode}
+  \ifAMC@ensemble\else\vspace{1.5ex}\par\fi
+  \ifAMC@ensemble\ifAMCformulaire@dedans
+    \AMCmessage{FQ}
+  \fi\fi
+  }
+}
+
+\cs_new_eq:NN \AMCnumericShow \amc_numeric_show:nn
+
+%    \end{macrocode}
+%
+% |\AMCnumericHide| is called when the boxes are not to be drawn (in
+% the question sheets for separate answer sheet layout), and
+% |\AMCnumericChoices|\marg{value}\marg{options} is the function to be
+% used in the LaTeX source code of the exam.
+%
+%    \begin{macrocode}
+\cs_new:Npn \amc_numeric_hide:nn #1 #2 {
+  \keys_set:nn { amcnumeric } { #2 }
+  \AMCntextGoto
+  \ifAMC@qbloc\else\vspace{1.5ex}\par\fi
+}
+
+\cs_new_eq:NN \AMCnumericHide \amc_numeric_hide:nn
+
+\ExplSyntaxOff
+\def\AMCnumericChoicesPlain{%
+  \AMC@if@separate@question{\AMC@mem@category{numeric}}%
+  \AMCformatChoices{\AMCnumericShow}{\AMCnumericHide}%
+}
+%    \end{macrocode}
+% The \marg{value} argument is often given as a macro, that is to be
+% expanded before calling |\AMCnumericChoicesPlain|, so that its value
+% will be the same in the separate answer sheet...
+%    \begin{macrocode}
+\ExplSyntaxOn
+
+\cs_new:Npn \amc_numeric_choices:nn #1#2 {
+  \AMCnumericChoicesPlain{#1}{#2}
+}
+\cs_generate_variant:Nn \amc_numeric_choices:nn { xn }
+\cs_new_eq:NN \AMCnumericChoices \amc_numeric_choices:xn
+
+\ExplSyntaxOff
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsubsection{Intervals}
+%
+% \begin{macro}{\AMCIntervals}
+%   The command |\AMCIntervals|\marg{x}\marg{x0}\marg{x1}\marg{delta}
+%   can be used to present answers as intervals $[x_i,x_i+\delta[$
+%   covering $[\meta{x0},\meta{x1}[$, such that the only interval
+%   containing \meta{x} is declared as |\correctchoice|, and the other
+%   as |\wrongchoice|.
+%
+%   For this command to work, one has to load package \textsf{fp}.
+%
+%   As an example, 
+%   produces (in correction mode):
+%    \begin{question}{quarter}
+%      \makeatletter\AMC@correctrue\makeatother
+%      In which interval falls $1/4$?
+%      \begin{multicols}{5}
+%        \begin{choices}[o]
+%          \AMCIntervals{0.25}{0}{1}{0.1}
+%        \end{choices}
+%      \end{multicols}
+%    \end{question}
+%
+%    Note that the interval formatting can be changed redefining the
+%    |\AMCintervalFormat| command, which is originally defined as
+%    \begin{macrocode}
+\def\AMCIntervalFormat#1#2{[#1,\,#2[}
+%    \end{macrocode}
+% to follow local conventions (writting $[a,b)$ instead of $[a,b[$ is
+% for example a common usage).
+%    \begin{macrocode}
+\ExplSyntaxOn
+
+\fp_new:N \amc_interv_a
+\fp_new:N \amc_interv_b
+\cs_new:Npn \amc_intervals:nnnn #1 #2 #3 #4 {
+  \fp_set:Nn \amc_interv_a { #2 }
+  \fp_do_while:nn { \amc_interv_a < #3 } {
+    \fp_set:Nn \amc_interv_b { \amc_interv_a + #4 }
+    \fp_compare:nTF { \amc_interv_a <= #1 < \amc_interv_b }
+      \correctchoice \wrongchoice
+    {\AMCIntervalFormat{\fp_use:N \amc_interv_a}{\fp_use:N \amc_interv_b}}
+    \fp_set:Nn \amc_interv_a \amc_interv_b
+  }
+}
+\cs_new_eq:NN \AMCIntervals \amc_intervals:nnnn
+
+\ExplSyntaxOff
+%    \end{macrocode}\end{macro}
+%
+% \subsection{Open questions}
+%
+% \begin{macro}{\AMCOpen}
+%   The command |\AMCOpen|\marg{options}\marg{choices} can be used as
+%   a replacement for the |choices| environment when asking the
+%   student to write some answer by hand. The teacher will correct and
+%   mark this answer either on the paper before scanning, or with
+%   manual data capture, thanks to the scoring boxes.
+%
+%   As an example,
+% shows:
+%
+% \begin{center}
+% {\makeatletter\AMC@inside@boxfalse\AMC@ensemblefalse\makeatother
+% \fbox{
+% \begin{minipage}{.7\linewidth}
+% \begin{question}{Linux}
+%   What is the first name of the person who started working on the Linux kernel?
+%   \AMCOpen{}{\wrongchoice[w]{w}\scoring{0}\correctchoice[c]{c}\scoring{2}}%
+% \end{question}%
+% \end{minipage}}}
+% \end{center}
+% The teacher will have to tick the `w' box for wrong answers, and the
+% `c' box for correct answers.
+%
+% Begin with the options definitions:
+%    \begin{macrocode}
+\def\AMCotextGoto{}
+\def\AMCotextReserved{}
+\def\AMCocol@Background{lightgray}
+\def\AMCocol@BoxFrameRule{white}
+\def\AMCocol@FrameRule{black}
+\def\AMCocol@Foreground{}
+\def\AMCopen@answer{}
+\def\AMCopen@question{}
+\def\AMCopen@lineuptext{}
+\define@key{AMCOpen}{backgroundcol}{\def\AMCocol@Background{#1}}
+\define@key{AMCOpen}{foregroundcol}{\def\AMCocol@Foreground{#1}}
+\define@key{AMCOpen}{Treserved}{\def\AMCotextReserved{#1}}
+\define@key{AMCOpen}{question}[\AMCid@name]{\def\AMCopen@question{#1}}
+\define@key{AMCOpen}{answer}{\def\AMCopen@answer{#1}}
+\define@key{AMCOpen}{contentcommand}[AMCopen@lines]{\def\AMCopen@contentcommand{#1}}
+\newdimen\AMCopen@Hspace\AMCopen@Hspace=.5em
+\define@key{AMCOpen}{hspace}{\AMCopen@Hspace=#1}
+\def\AMCopen@Width{.95\linewidth}
+\define@key{AMCOpen}{width}{\def\AMCopen@Width{#1}}
+\newdimen\AMCopen@LineHeight\AMCopen@LineHeight=1cm
+\define@key{AMCOpen}{lineheight}{\AMCopen@LineHeight=#1}
+\newcount\AMCopen@Lines\AMCopen@Lines=1
+\define@key{AMCOpen}{lines}{\AMCopen@Lines=#1}
+\newdimen\AMCopen@boxmargin\AMCopen@boxmargin=3pt
+\define@key{AMCOpen}{boxmargin}{\AMCopen@boxmargin=#1}
+\newdimen\AMCopen@boxframerule\AMCopen@boxframerule=1pt
+\define@key{AMCOpen}{boxframerule}{\AMCopen@boxframerule=#1}
+\define@key{AMCOpen}{boxframerulecol}{\def\AMCocol@BoxFrameRule{#1}}
+\define@key{AMCOpen}{framerulecol}{\def\AMCocol@FrameRule{#1}}
+\newdimen\AMCopen@framerule\AMCopen@framerule=1pt
+\define@key{AMCOpen}{framerule}{\AMCopen@framerule=#1}
+\define@key{AMCOpen}{lineuptext}{\def\AMCopen@lineuptext{#1}}
+\define@boolkey{AMCOpen}{dots}[true]{}
+\define@boolkey{AMCOpen}{scan}[true]{}
+\define@boolkey{AMCOpen}{retick}[true]{}
+\define@boolkey{AMCOpen}{annotate}[false]{}
+\define@boolkey{AMCOpen}{lineup}[false]{}
+\setkeys{AMCOpen}{dots,scan,retick,annotate,lineup,contentcommand}
+\newcommand\AMCopenOpts[1]{\setkeys{AMCOpen}{#1}}
+%    \end{macrocode}
+% 
+% The command |\AMCOpen| is similar to |\AMCnumericChoices|, calling
+% either |\AMCopenShow| or |\AMCopenHide|.
+%    \begin{macrocode}
+\newcommand\AMCopen@lines{%
+  \begin{minipage}{\AMCopen@Width}%
+    \loop\vspace{\AMCopen@LineHeight}
+    \hspace*{.5em}\ifAMC@correc\smash{\AMCopen@answer}\def\AMCopen@answer{}\fi%
+    \ifKV@AMCOpen@dots%
+    \dotfill\hspace*{.5em}
+    \fi
+    \ifnum\AMCopen@Lines>\@ne\par\advance\AMCopen@Lines\m@ne\repeat%
+  \end{minipage}
+}
+\newcommand\AMCopenShow[2]{
+  \ifAMC@ensemble\ifAMCformulaire@dedans%
+    \AMCmessage{Q=\the\AMCid@quest}%
+  \fi\fi%
+  {\setkeys{AMCOpen}{#1}%
+    \ifKV@AMCOpen@lineup%
+      \ifAMC@ensemble\else%
+        \ifx\@empty\AMCopen@lineuptext\@empty\fi%
+      \fi%
+      \ifAMC@correc\smash{\AMCopen@answer}\fi%
+      \ifx\@empty\AMCopen@lineuptext\@empty%
+        \dotfill%
+      \else%
+        \AMCopen@lineuptext\hfill%
+      \fi%
+    \else%
+      \hspace*{.5em}\linebreak[1]\hspace*{\fill}%
+    \fi%
+    {\AMCnoCompleteMulti%
+      \def\AMCbeginAnswer{}\def\AMCendAnswer{}%
+      \def\AMCanswer##1##2{\ifAMC@ensemble ##1\else%
+          \ifAMC@inside@box ##1\else{\AMCboxOutsideLetter{##1}{##2}}\fi\fi%
+        \hspace{\AMCopen@Hspace}}%
+      \fboxsep=\AMCopen@boxmargin%
+      \fboxrule=\AMCopen@boxframerule%
+      \fcolorbox{\AMCocol@BoxFrameRule}{\AMCocol@Background}{%
+        \ifAMC@ensemble\AMCopen@question%
+          \ifx\@empty\AMCopen@question\@empty\else\hspace{\AMCopen@Hspace}\fi%
+        \fi%
+        \begin{choicescustom}[o]%
+          \ifx\AMCocol@Foreground\@empty\@empty\else%
+            \def\AMC@boxcolor{\AMCocol@Foreground}%
+          \fi%
+          #2%
+          \ifKV@AMCOpen@scan\else\AMCdontScan\fi%
+          \ifKV@AMCOpen@retick\AMCreTick\fi%
+          \ifKV@AMCOpen@annotate\else\AMCdontAnnotate\fi%
+        \end{choicescustom}%
+        \ifx\@empty\AMCotextReserved\@empty%
+          \hspace{-\AMCopen@Hspace}%
+        \else%
+          \ifx\AMCocol@Foreground\@empty\@empty%
+            \AMCotextReserved%
+          \else%
+            \textcolor{\AMCocol@Foreground}{\AMCotextReserved}%
+          \fi%
+        \fi%
+      }}%
+    \ifKV@AMCOpen@lineup\else%
+      \par\nobreak\noindent%
+      \hspace*{\fill}{%
+        \fboxrule=\AMCopen@framerule%
+        \fcolorbox{\AMCocol@FrameRule}{white}{%
+          \csname\AMCopen@contentcommand\endcsname
+        }}%
+      \vspace{\AMCpostOquest}\par%
+    \fi%
+  }%
+  \ifAMC@ensemble\ifAMCformulaire@dedans%
+  \AMCmessage{FQ}%
+  \fi\fi%
+}
+\newcommand\AMCopenHide[2]{%
+  \AMCotextGoto%
+  \ifAMC@qbloc\else\vspace{1.5ex}\par\fi%
+}
+\def\AMCOpen{%
+  \AMC@if@separate@question{\AMC@mem@category{open}}%
+  \AMCformatChoices{\AMCopenShow}{\AMCopenHide}%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsection{Boxes with letters only}
+%
+% \begin{macro}{\AMCBoxOnly}
+%   Sometimes the letters printed in the boxes (or just after them)
+%   are enough to describe the answers. In such cases, printing the
+%   boxes both on the question and on the answer sheet is not
+%   necessary. The |\AMCBoxOnly|\marg{options}\marg{choices} can be
+%   used as a replacement for the |choices| environment:
+%    \begin{macrocode}
+\def\AMCbotextGoto{}
+\def\AMCbo@help{}
+\define@key{AMCBoxOnly}{help}{\def\AMCbo@help{#1}}
+\define@boolkey{AMCBoxOnly}{ordered}[false]{}
+\setkeys{AMCBoxOnly}{ordered}
+\newcommand\AMCboOpts[1]{\setkeys{AMCBoxOnly}{#1}}
+\newcommand\AMCboShow[2]{%
+  \ifAMC@ensemble\ifAMCformulaire@dedans%
+    \AMCmessage{Q=\the\AMCid@quest}%
+  \fi\fi%
+  {\setkeys{AMCBoxOnly}{#1}%
+    \def\AMCbeginAnswer{}\def\AMCendAnswer{}%
+    \def\AMCanswer##1##2{\hspace{\AMCformHSpace} \ifAMC@ensemble ##1\else%
+      \ifAMC@inside@box ##1\else{\AMCboxOutsideLetter{##1}{##2}}\fi\fi%
+      }%
+    \ifAMC@ensemble\AMCbo@help\fi%
+    \ifKV@AMCBoxOnly@ordered%
+      \begin{choicescustom}[o]%
+    \else%
+      \begin{choicescustom}%
+    \fi%
+      #2
+    \end{choicescustom}%
+  }%
+  \ifAMC@ensemble\ifAMCformulaire@dedans%
+  \AMCmessage{FQ}%
+  \fi\fi%
+}
+\newcommand\AMCboHide[2]{
+  \AMCbotextGoto%
+  \ifAMC@qbloc\else\vspace{1.5ex}\par\fi%
+}
+\def\AMCBoxOnly{%
+  \AMC@if@separate@question{\AMC@mem@category{box}}%
+  \AMCformatChoices{\AMCboShow}{\AMCboHide}%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsection{Page formatting}
+%
+% \subsubsection{Watermark}
+%
+% \begin{macro}{\AMCw@termark}\begin{macro}{\AMCw@terprint}
+%     These commands are used to print a grey ``DRAFT'' under each
+%     page, so as to prevent from printing old versions of the
+%     subject.
+%    \begin{macrocode}
+\DeclareFontShape{OT1}{cmr}{b}{n}{<35->cmr17}{}
+\def\AMC@watertext{\AMC@loc@draft}
+\newcommand\AMCw@termark{%
+  \setlength{\@tempdimb}{.5\paperwidth}%
+  \setlength{\@tempdimc}{-.5\paperheight}%
+  \put(\strip@pt\@tempdimb,\strip@pt\@tempdimc){%
+    \makebox(0,0){\rotatebox{45}{\AMC@LR{%
+        \textcolor[gray]{0.8}{
+          \fontencoding{OT1}\fontfamily{cmr}
+          \fontseries{b}\fontshape{n}
+          \fontsize{90pt}{120pt}
+          \selectfont
+          \AMC@watertext}}}}}}
+\newcommand\AMCw@terprint[1]{%
+  \setbox\@tempboxa\vbox to \z@{%
+    \vbox{%
+      \hbox to \z@{%
+        #1\hss}}\vss}
+  \dp\@tempboxa\z@
+  \box\@tempboxa}
+%    \end{macrocode}\end{macro}\end{macro}
+%
+% \subsubsection{Signs for scan analysis}
+%
+% The following code sets up all the signs to be printed on the pages
+% so as to be able to recognize the position of the boxes on the
+% scans. Four circles \makeatletter\m@rqueCalage\makeatother{} are
+% printed on the corners (see |\m@rqueCalage|), and binary boxes show
+% the student sheet number (see |\AMCIDBoxesA|), the page (see
+% |\AMCIDBoxesB|) and a checking number (see |\AMCIDBoxesC|).
+%
+% |\AMC@intituleHead| is the title to be printed at the beginning
+% (used for corrected sheet, and empty on subject). |\AMC@note| is
+% printed at the bottom of each page. You can change its value using
+% |\AMCsetFoot|\marg{foot}.
+%
+%    \begin{macrocode}
+\def\AMCcercle#1#2{%
+  {\setlength{\unitlength}{1mm}%
+    \begin{picture}(#1,#1)(-#2,-#2)\thinlines\circle*{#1}\end{picture}}}
+\def\m@rqueCalage{\AMCcercle{3.6}{1.8}}
+\def\m@rque#1{\AMC@tracebox{1}{#1}{\m@rqueCalage}}
+\def\he@dtaille#1{% \par cancels the \leavevmode
+  % introduced by https://github.com/pietvo/fancyhdr/commit/6b1ad10eeb5bc3d804f3cd2cf193e6440d0229e6
+  \par\vbox to 1cm{#1}}
+\def\he@dbas#1{\he@dtaille{\vspace*{\fill}#1}}
+\def\he@dhaut#1{\he@dtaille{#1\vspace*{\fill}}}
+\def\AMC@intituleHead{\AMC@loc@corrected}
+\def\AMC@note{}
+\def\AMCsetFoot#1{\def\AMC@note{#1}}
+\newcommand\AMCStudentNumber{\the\AMCid@etud}
+\newcommand\AMCIDBoxesA{\AMC@binaryCode{id=1,ndigits=\AMC@NCBetud}{\the\AMCid@etud}}
+\newcommand\AMCIDBoxesB{\AMC@binaryCode{id=2,ndigits=\AMC@NCBpage}{\thepage}}
+\newcommand\AMCIDBoxesC{\AMC@binaryCode{id=3,ndigits=\AMC@NCBcheck}{\the\AMCid@check}}
+\newcommand\AMCIDBoxesABC{%
+  \hbox{\vbox{\noindent\AMCIDBoxesA\\
+    \noindent\AMCIDBoxesB\AMCIDBoxesC}}%
+}
+\AtBeginPage{\ifAMC@pagelayout\global\advance\AMCid@check\m@ne%
+  \ifnum\AMCid@check<1\global\AMCid@check=\AMCid@checkmax\fi%
+  \AMC@pagepos%
+  \ifAMC@watermark\ifAMC@correchead\else\AMCw@terprint{\AMCw@termark}%
+  \fi\fi\fi}
+\fancypagestyle{AMCpageHeadOnly}{%
+  \fancyhf{}\fancyhead[C]{\textsc{\AMC@intituleHead}}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+\fancypagestyle{AMCpageFull}{%
+  \fancyhf{}%
+  \fancyhead[L]{\AMC@LR{\he@dbas{\leavevmode\m@rque{positionHG}}}}%
+  \fancyhead[R]{\AMC@LR{\he@dbas{\leavevmode\m@rque{positionHD}}}}%
+  \fancyfoot[L]{\AMC@LR{\leavevmode\m@rque{positionBG}}}%
+  \fancyfoot[R]{\AMC@LR{\leavevmode\m@rque{positionBD}}}%
+  \fancyhead[C]{\AMC@LR{\he@dhaut{%
+        \begin{minipage}[b]{\AMC@CBtaille}\AMCboxColor{black}%
+          \ifAMCids@top\vbox to \AMCids@height{\texttt{+\the\AMCid@etud/\thepage/\the\AMCid@check+}}\fi%
+          \AMCIDBoxesABC
+        \end{minipage}%
+        \ifAMCids@side\hbox to \AMCids@width{\hspace*{\fill}%
+          \texttt{+\the\AMCid@etud/\thepage/\the\AMCid@check+}}\fi%
+      }}}%
+  \fancyhfoffset[EOLR]{5mm}%
+  \fancyfoot[C]{\AMC@note}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+\newcommand\AMCsubjectPageTag{%
+  \fbox{\texttt{\the\AMCid@etud:\thepage}}%
+}
+\fancypagestyle{AMCpageNoMarks}{%
+  \fancyhf{}%
+  \fancyhead[R]{\AMCsubjectPageTag}%
+  \fancyfoot[C]{\AMC@note}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+\fancypagestyle{AMCpageEmpty}{%
+  \fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+\AtBeginDocument{%
+  \ifAMC@pagelayout%
+    \ifAMC@correchead
+      \pagestyle{AMCpageHeadOnly}
+    \else
+      \pagestyle{AMCpageFull}
+    \fi
+  \fi
+}
+%    \end{macrocode}
+%
+% \subsection{Defining a single exam copy content}
+%
+% \begin{macro}{\onecopy}
+%   The command |\onecopy|\oarg{n}\marg{code} generates \meta{n}
+%   copies of the subject that is described in \meta{code}. The \LaTeX
+%   code \meta{code} that generates a single copy can be a little
+%   long, so that the environment |examcopy| is often prefered.
+%
+%    \begin{macrocode}
+\newcommand{\onecopy}[2]{%
+  \ifx\AMCNombreCopies\undefined\AMCnum@copies=#1%
+  \else\AMCnum@copies=\AMCNombreCopies\fi%
+  \AMCmessage{TOTAL=\the\AMCnum@copies}%
+  \AMCid@etud=\AMCid@etudstart%
+  \ifnum\AMCid@etud=0\AMCid@etud=\AMC@premierecopie\fi%
+  \AMCid@etudfin=\AMCnum@copies%
+  \advance\AMCid@etudfin\AMCid@etud\relax%
+  \ifAMC@correchead\AMCid@etudfin=\AMC@premierecopie\fi
+  \ifAMC@pdfform\begin{Form}\fi%
+  \loop{%
+    \ifAMC@calibration\protected@write\AMC@XYFILE{}{%
+      \string\rngstate{\the\AMCid@etud}{\the\AMC@SR}%
+    }\fi%
+    \AMC@zoneformulairefalse\setcounter{page}{1}\setcounter{section}{0}%
+    \ifAMC@ensemble\ifAMC@automarks\pagestyle{AMCpageNoMarks}\fi\fi%
+    \AMCnumero{1}%
+    \ifAMC@calibration\AMCmessage{ETU=\the\AMCid@etud}\fi%
+    \AMC@multiclear%
+    \global\AMC@keepmemoryfalse%
+      #2%
+    \ifAMC@keepmemory\else\AMC@mem@clear\fi%
+    \clearpage}%
+  \advance\AMCid@etud\@ne\ifnum\AMCid@etud<\AMCid@etudfin\repeat%
+  \global\AMCid@etudstart=\AMCid@etud%
+  \ifAMC@pdfform\end{Form}\fi%
+  \AMC@multi@report%
+}
+%    \end{macrocode}\end{macro}
+%
+% \begin{macro}{\AMCaddpagesto}
+%   In some situations, one needs all question sheets to have the same
+%   number of pages. The command |\AMCaddpagesto|\marg{n} adds enough
+%   (white) pages to get at least \meta{n} pages in the current
+%   question sheet.
+%    \begin{macrocode}
+\newcount\AMC@addpages
+\newcommand{\AMCaddpagesto}[1]{%
+  \AMC@addpages=#1\advance\AMC@addpages\@ne%
+  \clearpage%
+  \@whilenum\thepage<\AMC@addpages\do{%
+    \ifAMC@automarks\pagestyle{AMCpageEmpty}\fi%
+    \hbox{}\clearpage%
+  }%
+}
+%    \end{macrocode}\end{macro}
+%
+% \begin{macro}{\AMCcleardoublepage}
+%   If you want to print the subject all at one time in duplex mode,
+%   it is necessary to end each subject with an even number of
+%   pages. This can be achieved using |\AMCcleardoublepage| at the end
+%   of the copy definition. This command is also useful inserted
+%   before the separate answer sheet (if any).
+%
+%    \begin{macrocode}
+\def\AMCcleardoublepage{%
+  \clearpage%
+  \ifodd\thepage\else%
+    \ifAMC@automarks\pagestyle{AMCpageEmpty}\fi%
+    \hbox{}\clearpage%
+  \fi%
+}
+%    \end{macrocode}\end{macro}
+%
+% \begin{macro}{\exemplairepair}
+%   To make some differences in the copies, checking if the student
+%   sheet number is odd, with |\exemplairepair| construct, can be
+%   useful.
+%    \begin{macrocode}
+\def\exemplairepair{\ifodd\AMCid@etud}
+%    \end{macrocode}\end{macro}
+%
+% \begin{macro}{\AMClabel}\begin{macro}{\AMCref}\begin{macro}{\AMCref}
+%       Commands |\AMClabel|, |\AMCref| and |\AMCpageref| replaces
+%       \LaTeX's |\label|, |\ref| and |\pageref| to be able to use different
+%       labels for different sheets.
+%
+%    \begin{macrocode}
+\newcommand\AMCstudentlabel[1]{\the\AMCid@etud-#1}
+\def\AMClabel#1{\expandafter\label{\AMCstudentlabel{#1}}}
+\def\AMCref#1{\expandafter\ref{\AMCstudentlabel{#1}}}
+\def\AMCpageref#1{\expandafter\pageref{\AMCstudentlabel{#1}}}
+%    \end{macrocode}\end{macro}\end{macro}\end{macro}
+%
+% \begin{macro}{\AMCqlabel}
+%   A label can be created for current question with
+%   |\AMCqlabel|\marg{label}. This label can be used with |\AMCref|
+%   and |\AMCpageref|. This command is defined for backward
+%   compatibility only, since |\AMClabel| can also be used.
+%    \begin{macrocode}
+\newcommand{\AMCqlabel}[1]{%
+  \AMClabel{#1}%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \subsection{Pre-association}
+%
+% \begin{macro}{\AMCassociation}
+%   Association between sheets and students can be made before the
+%   exam with the |\AMCassociation|\oarg{filename}\marg{id}
+%   command. The optional argument \meta{filename} will be used when
+%   printing student sheets to files.
+%    \begin{macrocode}
+\newcommand{\AMCassociation}[2][]{%
+  \ifAMC@calibration%
+  \immediate\write\AMC@XYFILE{\string\association{\the\AMCid@etud}{#2}{#1}}%
+  \fi%
+}
+%    \end{macrocode}
+% \end{macro}
+%
+% \begin{macro}{\AMCstudentslistfile}
+%   You can also pass AMC the path to the CSV file with students, and
+%   the unique key that can be used, with
+%   |\AMCstudentslistfile|\marg{path}\marg{key}.
+%    \begin{macrocode}
+\newcommand{\AMCstudentslistfile}[2]{%
+  \ifAMC@calibration%
+  \immediate\write\AMC@XYFILE{\string\with{studentslistfile=#1}}%
+  \immediate\write\AMC@XYFILE{\string\with{studentslistkey=#2}}%
+  \fi%
+}
+%    \end{macrocode}
+% \end{macro}
+
+% \subsection{Package options}
+%
+% See section~\ref{d:options} for the options descriptions.
+%
+%    \begin{macrocode}
+\def\AMC@lang@code{}
+\DeclareOptionX{noshuffle}{\AMC@ordretrue}
+\DeclareOptionX{noshufflegroups}{\AMC@shuffleGfalse}
+\DeclareOptionX{fullgroups}{\AMC@fullGroupstrue}
+\DeclareOptionX{answers}{\AMC@correcheadtrue\AMC@correctrue}
+\DeclareOptionX{indivanswers}{\AMC@correctrue}
+\DeclareOptionX{textpos}{\AMC@textPostrue}
+\DeclareOptionX{extractonly}{\AMC@extractOnlytrue\AMC@textPostrue\AMCboxStyle{shape=none}\AMCBoxedAnswers}
+\DeclareOptionX{box}{\AMC@qbloctrue}
+\DeclareOptionX{asbox}{\AMC@asqbloctrue}
+\DeclareOptionX{separateanswersheet}{\AMC@ensembletrue}
+\DeclareOptionX{digits}{\AMC@inside@digittrue}
+\DeclareOptionX{ordre}{\AMC@ordretrue}
+\DeclareOptionX{correc}{\AMC@correcheadtrue\AMC@correctrue}
+\DeclareOptionX{modele}{\AMC@correcheadtrue\AMC@correcfalse\AMC@ordretrue}
+\DeclareOptionX{correcindiv}{\AMC@correctrue}
+\DeclareOptionX{init}{\AMC@SR@time}
+\DeclareOptionX{bloc}{\AMC@qbloctrue}
+\DeclareOptionX{completemulti}{\AMCcomplete@multitrue}
+\DeclareOptionX{insidebox}{\AMC@inside@boxtrue}
+\DeclareOptionX{ensemble}{\AMC@ensembletrue}
+\DeclareOptionX{chiffres}{\AMC@inside@digittrue}
+\DeclareOptionX{outsidebox}{\AMC@outside@boxtrue}
+\DeclareOptionX{calibration}{\AMC@calibrationtrue}
+\DeclareOptionX{nowatermark}{\AMC@watermarkfalse}
+\newcommand\AMC@catalogMode{%
+  \AMC@catalogtrue%
+  \AMC@watermarkfalse\AMC@correcheadtrue%
+  \AMC@correctrue\AMC@ordretrue\AMC@shuffleGfalse%
+  \AMC@fullGroupstrue%
+  \def\AMC@intituleHead{\AMC@loc@catalog}\AMC@affichekeystrue}
+\newcommand\AMC@keys@next{\AMC@keyslinefalse}
+\newcommand\AMC@keys@line{\AMC@keyslinetrue}
+\DeclareOptionX{catalog}{\AMC@catalogMode}
+\DeclareOptionX{keys}[next]{\csname AMC@keys@#1\endcsname{}}
+\DeclareOptionX{francais}{\def\AMC@lang@code{FR}\AMC@loc@FR}
+\DeclareOptionX{lang}{\def\AMC@lang@code{#1}\csname AMC@loc@#1\endcsname}
+\DeclareOptionX{versionA}{%
+  \def\AMCid@checkmax{31}\def\AMC@NCBetud{9}\def\AMC@NCBpage{4}%
+  \def\AMC@NCBcheck{5}\setlength{\AMC@CBtaille}{4cm}%
+  \def\AMC@premierecopie{100}}
+\DeclareOptionX{plain}{\AMC@plaintrue}
+\DeclareOptionX{nopage}{\AMC@pagelayoutfalse}
+\DeclareOptionX{postcorrect}{\AMC@postcorrecttrue}
+\DeclareOptionX{automarks}{\AMC@automarkstrue}
+\newif\ifAMCneeds@storebox\AMCneeds@storeboxfalse
+\DeclareOptionX{storebox}{\AMCneeds@storeboxtrue}
+\DeclareOptionX{pdfform}{\AMC@pdfformtrue}
+\DeclareOptionX{codedigit}{\AMCcodeID@@{#1}}
+\newif\ifAMC@survey\AMC@surveyfalse
+\DeclareOptionX{survey}{\AMC@surveytrue}
+\ProcessOptionsX
+\ifAMCneeds@storebox
+  \RequirePackage{storebox}\AtBeginDocument{{}}%
+\fi
+\ifAMC@pdfform
+  \AMCmessage{VAR:project:pdfform=1}%
+  \AMCboxStyle{shape=form}%
+  \RequirePackage[pageanchor=false]{hyperref}%
+\else%
+   \AMCmessage{VAR:project:pdfform=0}%
+\fi
+\AtBeginDocument{%
+  \ifAMCneeds@storebox%
+    \let\AMC@new@savebox=\newstorebox%
+    \let\AMC@save@box=\storebox%
+    \let\AMC@use@box=\usestorebox%
+  \fi%
+  \AMC@new@savebox{\AMC@ovalbox@R}%
+  \AMC@new@savebox{\AMC@ovalbox@RF}%
+  \AMC@new@savebox{\AMC@ovalbox@}%
+  \AMC@new@savebox{\AMC@ovalbox@F}%
+  \AMC@shapeprepare%
+}
+%    \end{macrocode}
+% \subsection{Survey add-on}
+% Some code and \textit{tikz} settings to help handling surveys, see
+% \url{https://survey.codes/pdf/surveyamc_manual.pdf} for more
+% details. This survey add-on is originally written by Claudia
+% Saalbach.
+% \begin{environment}{Questionnaires}\begin{environment}{auto}\begin{environment}{question-auto}\begin{environment}{values}\begin{environment}{values-auto}\begin{environment}{variable-auto}\begin{macro}{\answer}
+%    \begin{macrocode}
+\ifAMC@survey
+\NewEnviron{Questionnaires}[1]{
+\onecopy{#1}{
+\BODY
+}		
+}
+\NewEnviron{auto}[1]{
+\csvreader[head to column names, separator=tab]{#1}{}{
+\BODY
+}		
+}
+\NewEnviron{question-auto}[3]{
+\csvreader[head to column names, separator=tab]{#1}{}{
+\ifcsvstrcmp{#2}{#3}{\BODY \\}{}
+}
+}
+\newenvironment{values}{}{}
+\NewEnviron{values-auto}[5]{
+\csvreader[head to column names, separator=tab]{#1}{}{
+\ifcsvstrcmp{#2}{#3}{
+\ifcsvstrcmp{#4}{#5}{\BODY \\		
+}{}
+}{}	
+}
+}
+\NewEnviron{variable-auto}[3]{
+\foreach \x in {#3}{
+\csvreader[head to column names, separator=tab]{#1}{}{
+\ifcsvstrcmp{#2}{\x}{\BODY}{} 
+}
+}		
+}
+\newcommand{\answer}[5][]{\global\advance\AMCrep@count\@ne\relax%
+  \ifAMC@calibration\AMCmessage{REP=\the\AMCrep@count:B}\fi%
+  \global\AMCune@bonnetrue%
+  \AMCload@@reponse{\une@rep{\ifAMC@correc\AMC@box{#1}{\AMC@checkedbox}%
+  \else\AMC@box{#1}{}\fi}{#2}{#3}{#4}{#5}}{\the\AMCrep@count}\ignorespaces}
+\RequirePackage{tikz}
+\usetikzlibrary{positioning, shapes, arrows, tikzmark, decorations.pathreplacing}
+\tikzset{
+    checkbox-sc/.style={
+      right=of lab\thecsvrow
+    },
+    vallab-sc/.style={
+      text width=4cm,
+      align=left,
+    },
+    checkbox-mc/.style={
+    },
+    vallab-mc/.style={
+      above=of box\thecsvrow,
+      text width=1.4cm,
+      align=center,
+    },
+    varlab-mc/.style={
+      text width=4cm,
+      align=left,
+    },
+    node distance= 0mm,
+  }
+\fi
+%    \end{macrocode}\end{macro}\end{environment}\end{environment}\end{environment}\end{environment}\end{environment}\end{environment}
+%
+% \subsection{Package Errors}
+%
+%  \begin{macro}{\AMC@error@explain}
+%   Error to display if |\explain| command is used outside question like environments
+%    \begin{macrocode}
+\def\AMC@error@explain{\PackageError{automultiplechoice}{
+    Command \protect\explain\space can only be used inside\MessageBreak question like environments}{Something's gone wrong.\MessageBreak \space \space Try typing \space <return>\space to proceed, ignoring \protect\explain.
+}}
+%    \end{macrocode}
+%  \end{macro}
+%
+% \subsection{Optional features}
+%
+% This package tries to see if optional packages \textsf{environ} and
+% \textsf{etex} are loadable, and load them if possible.  This behaviour
+% can be cancelled by using |plain| option.
+%
+%    \begin{macrocode}
+\ifAMC@plain
+\else
+  \IfFileExists{environ.sty}{\RequirePackage{environ}}{}
+  \ifx\eTeXversion\@undefined
+  \else
+    \RequirePackage{etex}
+  \fi
+\fi
+%    \end{macrocode}
+%
+% \begin{environment}{examcopy}
+%   Then, if \textsf{environ} package is loaded and defines command
+%   |\NewEnviron|, environment |examcopy| is defined.
+%
+%   Environment |{examcopy}|\oarg{n} does the same as command
+%   |onecopy|: it encloses \LaTeX{} code which makes \emph{one} exam
+%   copy. Optional argument \meta{n} gives the number of desired
+%   copies -- this can also be modified redefinig |\AMCNombreCopies|.
+%
+%    \begin{macrocode}
+\@ifpackageloaded{environ}{%
+  \ifx\NewEnviron\undefined\PackageWarning{automultiplechoice}%
+  {Package environ loaded but too old version:
+    environnement examcopy/copieexamen will NOT be defined.}%
+  \else\NewEnviron{examcopy}[1][5]{\onecopy{#1}{\BODY}}\fi}%
+{\PackageWarning{automultiplechoice}%
+  {Package environ not loaded: environnement
+    examcopy/copieexamen will NOT be defined.}}
+%    \end{macrocode}\end{environment}
+%
+% \subsection{Use with recent LuaTeX versions}
+%
+% In recent LuaTeX versions, the commands |pdfsavepos|, |pdflastxpos|
+% and |pdflastypos| has been renamed, stripping the |pdf| part. The
+% following code tries to detect this situation and make the bindings
+% between the old and new command names.
+%
+%    \begin{macrocode}
+\ExplSyntaxOn
+
+\cs_if_exist:NTF \pdfsavepos { } {
+  \cs_if_exist:NTF \savepos { \cs_new_eq:NN \pdfsavepos \savepos } { }
+}
+\cs_if_exist:NTF \pdflastxpos { } {
+  \cs_if_exist:NTF \lastxpos { \cs_new_eq:NN \pdflastxpos \lastxpos } { }
+}
+\cs_if_exist:NTF \pdflastypos { } {
+  \cs_if_exist:NTF \lastypos { \cs_new_eq:NN \pdflastypos \lastypos } { }
+}
+%    \end{macrocode}
+%
+% In some situations, the \textit{page} dimensions are different from the \textit{paper} dimensions. This must be taken into account when computing coordinates.
+%
+%    \begin{macrocode}
+
+\cs_if_exist:NTF \pdfpagewidth { } {
+  \cs_new_eq:NN \pdfpagewidth \paperwidth
+}
+\cs_if_exist:NTF \pdfpageheight { } {
+  \cs_new_eq:NN \pdfpageheight \paperheight
+}
+
+\ExplSyntaxOff
+%    \end{macrocode}
+% \subsection{External control}
+%
+% \begin{macro}{\SujetExterne}\begin{macro}{\ScoringExterne}
+% \begin{macro}{\CorrigeExterne}\begin{macro}{\CorrigeIndivExterne}
+% \begin{macro}{\NoWatermarkExterne}
+%   Some of the package options can be controlled defining
+%   |\|$xxx$|Externe| commands. For example, the following command will
+%   format the subject document, whatever options are used in the
+%   \LaTeX{} file:
+%
+%    \begin{macrocode}
+\ifx\SujetExterne\undefined\else
+\message{***SUJET***^^J}
+\AMC@calibrationtrue\AMC@correcfalse\AMC@correcheadfalse\AMC@watermarkfalse
+\fi
+\ifx\ScoringExterne\undefined\else
+\message{***SCORING***^^J}
+\AMC@calibrationtrue\AMC@correcfalse\AMC@correcheadfalse\AMC@watermarkfalse\AMC@invisibletrue
+\fi
+\ifx\CorrigeExterne\undefined\else
+\message{***CORRIGE***^^J}
+\AMC@calibrationfalse\AMC@correcheadtrue\AMC@correctrue\AMC@watermarkfalse
+\fi
+\ifx\CorrigeIndivExterne\undefined\else
+\message{***CORRIGE***^^J}
+\AMC@calibrationfalse\AMC@correcheadfalse\AMC@correctrue\AMC@watermarkfalse
+\fi
+\ifx\CatalogExterne\undefined\else
+\message{***CATALOG***^^J}
+\AMC@catalogMode
+\fi
+\ifx\NoWatermarkExterne\undefined\else
+\AMC@watermarkfalse
+\fi
+\ifx\codeDigitExterne\undefined\else
+\AMCcodeID@@{\codeDigitExterne}
+\fi
+%    \end{macrocode}
+% \end{macro}\end{macro}\end{macro}\end{macro}\end{macro}
+%
+% \subsection{Page layout}
+%
+% The following code sets the correct page layout to have room for
+% signs for scan analysis, and prepares watermark printing:
+%    \begin{macrocode}
+\@ifpackageloaded{geometry}{}{\usepackage{geometry}}
+\ifAMC@pagelayout
+  \ifAMC@correchead
+    \geometry{hmargin=3cm,vmargin={1cm,1cm},includeheadfoot,headheight=1cm,footskip=1cm}
+  \else
+    \geometry{hmargin=3cm,headheight=2cm,headsep=.3cm,footskip=1cm,top=3.5cm,bottom=2.5cm}
+  \fi
+  \ifAMC@watermark
+    \ifAMC@correchead\else
+      \def\AMC@note{\begin{minipage}{0.65\linewidth}
+          \AMC@LR{\textcolor{blue}{\AMC@loc@message}}
+        \end{minipage}
+      }
+    \fi
+  \fi
+\fi
+%    \end{macrocode}
+%
+% \subsection{Initialisation}
+%
+% Initialisation of the check counter:
+%    \begin{macrocode}
+\AMCid@check=\AMCid@checkmax\advance\AMCid@check\@ne
+%    \end{macrocode}
+%
+% Telling outside if separate answer sheet, and boxes labelling, are requested:
+%    \begin{macrocode}
+\ifAMC@ensemble\AMCmessage{VAR:ensemble=1}\fi
+\ifAMC@inside@box\AMCmessage{VAR:insidebox=1}\fi
+\ifAMC@outside@box\AMCmessage{VAR:outsidebox=1}\fi
+\ifAMC@postcorrect\AMCmessage{VAR:postcorrect=1}\fi
+%    \end{macrocode}
+%
+% Preparing writing to |.xy| file :
+%    \begin{macrocode}
+\ifAMC@calibration
+\newwrite\AMC@XYFILE%
+\immediate\openout\AMC@XYFILE\jobname.xy%
+\immediate\write\AMC@XYFILE{\string\version{\AMC@VERSION}}
+\immediate\write\AMC@XYFILE{\string\with{codedigit=\AMCcodeID@mode}}
+\immediate\write\AMC@XYFILE{\string\with{version=\AMC@VERSION}}
+\immediate\write\AMC@XYFILE{\string\with{ensemble=\ifAMC@ensemble yes\else no\fi}}
+\immediate\write\AMC@XYFILE{\string\with{insidebox=\ifAMC@inside@box yes\else no\fi}}
+\immediate\write\AMC@XYFILE{\string\with{outsidebox=\ifAMC@outside@box yes\else no\fi}}
+\immediate\write\AMC@XYFILE{\string\with{postcorrect=\ifAMC@postcorrect yes\else no\fi}}
+\immediate\write\AMC@XYFILE{\string\with{extractonly=\ifAMC@extractOnly yes\else no\fi}}
+\immediate\write\AMC@XYFILE{\string\with{lang=\AMC@lang@code}}
+\ifx\AMCNombreCopies\undefined%
+\immediate\write\AMC@XYFILE{\string\with{ncopies=default}}%
+\else%
+\immediate\write\AMC@XYFILE{\string\with{ncopies=\AMCNombreCopies}}%
+\fi%
+\fi
+%    \end{macrocode}
+%
+% \subsection{French command names}
+%
+% For backward compatibility, a lot of commands have their french
+% counterpart:
+%    \begin{macrocode}
+\let\reponses=\choices\let\endreponses=\endchoices
+\let\reponseshoriz=\choiceshoriz\let\endreponseshoriz=\endchoiceshoriz
+\let\reponsesperso=\choicescustom\let\endreponsesperso=\endchoicescustom
+\let\bonne=\correctchoice
+\let\mauvaise=\wrongchoice
+\let\bareme=\scoring
+\let\baremeDefautM=\scoringDefaultM
+\let\baremeDefautS=\scoringDefaultS
+\def\exemplaire{\AMC@loc@FR\onecopy}
+\@ifpackageloaded{environ}{%
+  \let\copieexamen=\examcopy\let\endcopieexamen=\endexamcopy}{}
+\let\melangegroupe=\shufflegroup
+\let\restituegroupe=\insertgroup
+\let\alafin=\lastchoices
+\let\formulaire=\AMCform
+\let\AMCdebutFormulaire=\AMCformBegin
+\let\champnom=\namefield
+\let\choixIntervalles=\AMCIntervals
+%    \end{macrocode}
+%
+% \section{Outputs}
+%
+% In the |.xy| file, |0/|\meta{n} means
+% student sheet number~0 (there is only one ``student sheet'' numbered 0 for this
+% document as we did not use |\onecopy|) and page number~\meta{n} inside this
+% student sheet. Then, each instance of the |\tracepos| command shows
+% $x$ and $y$ positions as arguments \#2 and \#3 (unit is |sp|, such
+% that $65536\times 72.27\,|sp|$ is one inch). One has to take min and
+% max of the $x$-values to determine the left and right position of
+% the box, and min and max values of $y$-values to determine top and bottom
+% position of the box.
+%
+% \subsection{\texttt{namefield} command}
+% \label{a:name}
+% Lines in the |.xy| file from a |\namefield| command:
+% \verbatiminput{automultiplechoice.xy2} 
+%
+% \subsection{\texttt{AMCboxedchar} command}
+% \label{a:boxed}
+% Lines in the |.xy| file from a |\AMCboxedchar| command:
+% \verbatiminput{automultiplechoice.xy1} 
+%
+% \subsection{\texttt{AMCcode} command}
+% \label{a:code}
+% Lines in the |.xy| file from a |\AMCcode| command. Here,
+% |code[|\meta{n}|]:|\meta{q}|,|\meta{v} relates to digit number
+% \meta{n} from the right (\meta{n}=1 for units, \meta{n}=2 for tens,
+% \meta{n}=3 for hundreds and so on), question number \meta{q}
+% (|\AMCcode| uses a fake question; this number can be ignored), and
+% value \meta{v}-1 (box number \meta{v} for the digit).
+% \verbatiminput{automultiplechoice.xy3}
+%
+% \clearpage
+% \tableofcontents
+%
+% \clearpage
+% \PrintIndex
+%
+% \end{document}
+{% endraw %}

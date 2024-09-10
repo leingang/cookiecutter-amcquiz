@@ -1,0 +1,298 @@
+{# This is a Jinja2 template for a latex file.  Both use braces heavily! 
+    We use the raw ... endraw statements to surround untouched latex 
+    and we have to escape literal braces.
+#}
+{%- set bgroup = "{" -%}
+{%- set egroup = "}" -%}
+{%- macro random_int() %}{% for n in [0,1,2,3,4,5,6] %}{{ [0,1,2,3,4,5,6,7,8,9]|random }}{% endfor %}{% endmacro -%}
+{%- if cookiecutter.has_versions == 'y' -%}
+{%- set versions = cookiecutter.versions_csv.split(',') -%}
+{%- else -%}
+{%- set versions = None -%}
+{%- endif -%}
+%<*driver>
+%%!TEX TS-program = dtxmake
+%%!TEX dtxmake-subengine = xelatexmk
+\input docstrip.tex
+\askforoverwritefalse
+\generate{
+{%- if versions -%}
+{%- for v in versions %}
+    \file{\jobname-{{v}}.qns.tex}{\from{\jobname.dtx}{questions,{{v}}}}
+    \file{\jobname-{{v}}.sol.tex}{\from{\jobname.dtx}{questions,solutions,{{v}}}}
+{%- endfor -%}
+{%- else -%}
+    \file{\jobname.qns.tex}{\from{\jobname.dtx}{questions}}
+    \file{\jobname.sol.tex}{\from{\jobname.dtx}{questions,solutions}}
+{%- endif %}
+}
+\endbatchfile
+%</driver>
+%<*questions>
+\documentclass{{ "{" }}article{{ "}" }}
+\ProvidesFile
+\ProvidesFile
+%<*dtx>
+{{ (cookiecutter.exam_code + ".dtx") | embrace }}
+%</dtx>
+{%- if versions -%}
+{%- for v in versions %}
+%<{{v}}&questions&!solutions>{{ (cookiecutter.exam_code + "-" + v + ".qns.tex") | embrace }}
+%<{{v}}&questions&solutions>{{ (cookiecutter.exam_code + "-" + v + ".sol.tex") | embrace }}
+{%- endfor -%}
+{%- else %}
+%<questions&!solutions>{{ (cookiecutter.exam_code + ".qns.tex") | embrace }}
+%<questions&solutions>{{ (cookiecutter.exam_code + ".sol.tex") | embrace }}
+{%- endif %}
+    [{% now 'local', '%Y/%m/%d' %} v0.0 {{cookiecutter.course_name}}, {{cookiecutter.term_name}}, {{cookiecutter.exam_name}}]
+\title{{cookiecutter.exam_name | embrace }}
+\author{{cookiecutter.instructor_name | replace('. ', '.~') | embrace }}
+\date{{cookiecutter.exam_date | localize_date | embrace }}
+\course{{ cookiecutter.course_name | embrace }}
+{% raw %}
+\usepackage[insidebox
+%<solutions>,answers
+,nowatermark
+]{automultiplechoice}
+\usepackage{ifxetex}
+\iftutex
+  \usepackage{fontspec}
+  \setmainfont{Frank Ruhl Libre}[
+    ItalicFont=*,
+    ItalicFeatures={FakeSlant}
+  ]
+  \setsansfont{Gotham Book}[
+    BoldFont=Gotham Medium,
+    ItalicFont=Gotham Book Italic
+  ]          
+\else
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{mathptmx}
+  \usepackage{helvet}
+\fi
+\usepackage{titling}
+\usepackage{changepage}%      For the `adjustwidth' environment
+
+\usepackage{xcolor-nyu22}[2022/08/05]
+% In the contemporary/subtle tone quadrant, we use sans for the main text and
+% serif for the section titles.
+%
+% These font assignments have nothing to do with this package; they are part of
+% the styling of a document
+\usepackage{titlesec}
+\newcommand{\headingfont}{\sffamily\color{NyuViolet}}
+\titleformat*{\section}{\LARGE\headingfont}
+\titleformat*{\subsection}{\Large\headingfont}
+\titleformat*{\subsubsection}{\large\headingfont}
+\renewcommand{\maketitlehooka}{\headingfont}
+
+\usepackage{eso-pic}
+\usepackage{graphicx}
+\usepackage{etoolbox}
+\newsavebox{\logobox}
+\savebox{\logobox}{\includegraphics[]{nyu_short_black}}
+\makeatletter
+\renewcommand{\maketitle}{
+    \noindent\parbox{\textwidth}{%
+    \sffamily\color{UltraViolet}%
+    \Large\@author
+    \hfill\@title
+    \hfill\@date}
+    {\color{UltraViolet}\hrule\bigskip}
+    \AddToShipoutPictureBG*{%
+    \AtPageUpperLeft{%
+      \raisebox{-1.5\ht\logobox}{\hspace{0.5\ht\logobox}\usebox{\logobox}}
+      }%
+    }
+}
+\makeatother
+\usepackage{markversion}
+% end document style
+
+
+
+\usepackage{tikz}
+\usetikzlibrary{MATH-UA-123-fall22}
+\AtBeginDocument{\AMCboxDimensions{shape=oval,down=1mm}}
+
+% Update the seed below to keep from copy & pasting the same one
+% from quiz to quiz.
+{% endraw -%}
+% This one was generated {% now 'local', '%c' %} 
+{%- if versions -%}
+{%- for v in versions %}
+%<{{v}}>\def\randomseed{{ random_int() | embrace }}
+{%- endfor -%}
+{%- else %}
+\def\randomseed{{ random_int() | embrace }}
+{%- endif %}
+{% raw -%}
+\AMCrandomseed{\randomseed} 
+\pgfmathsetseed{\randomseed}
+\usepackage{leincalc-fall22}
+\usepackage{nicefrac}
+\usepackage{cancel}
+\usepackage{enumitem}
+\usepackage{multicol}
+\everymath{\displaystyle}
+
+% \scoringDefaultS should be declared in the preamble.
+\def\MCptval{2}
+\def\TFptval{1}
+\scoringDefaultS{e=0,v=0,b=(N==2 ? \TFptval : \MCptval),m=0}
+\scoringDefaultM{b=\MCptval/N}
+\AMCnumericOpts{scoreexact=1,scoreapprox=0}
+
+
+% problem groups go here
+% Remember!
+% Question ID's cannot have dots in them, because then they become parts of multivalued fields.
+% Also, they are typeset in text mode, so they can't have TeX special characters like underscores, either.
+% Best: use a colon or hyphen to separate.
+\element{TF}{
+    \begin{question}{TF-cellphone}
+    Cell phones may be used in class if they are kept on silent.
+    \begin{choiceshoriz}[o]
+%        \correctchoice[T]{True}\wrongchoice[F]{False}
+        \wrongchoice[T]{True}\correctchoice[F]{False}
+    \end{choiceshoriz}
+\end{question}
+}
+
+\element{TF}{
+    \begin{question}{TF-Piazza}
+        The best place to ask (math) questions is the class's Piazza site.
+        \begin{choiceshoriz}[o]
+            \correctchoice[T]{True}
+            \wrongchoice[F]{False}
+        \end{choiceshoriz}
+    \end{question}
+}
+
+\element{TF}{
+    \begin{question}{TF-final}
+        The final is cumulative.
+        \begin{choiceshoriz}[o]
+            \correctchoice[T]{True}
+            \wrongchoice[F]{False}
+        \end{choiceshoriz}
+    \end{question}
+}
+
+    
+\AMCboxColor{LightViolet1}
+\def\AMCbeginQuestion#1#2{\par\noindent{\bf Question #1} #2\hspace*{1em}}
+
+
+
+\begin{document}
+
+\newenvironment{instructions}{\noindent\itshape}{}
+
+\onecopy{1}{
+\maketitle
+\bgroup
+% HEADER for name / section / ID
+\setlength{\parindent}{0pt}%
+%
+This paper will be scanned and read by optical mark reading software.
+Indicate your selections by filling in the circles \textbf{completely}.
+If you wish to change your selection, erase your marks completely.
+\bigskip
+
+\begin{minipage}{0.4\textwidth}
+    N Number:
+    \par\smallskip
+    \AMCcode{NNumber}{8}%
+\end{minipage}
+\hspace*{\fill}
+\begin{minipage}{0.6\textwidth}\raggedright
+    \namefield{\fbox{
+        \begin{minipage}{0.95\textwidth}
+            Name:
+            \vspace*{.5cm}%\dotfill
+            \vspace*{.5cm}%\dotfill
+            \vspace*{1mm}
+            \vspace{3ex} 
+        \end{minipage}
+    }}\medskip
+    \noindent
+    \fbox{
+        \begin{minipage}{0.95\textwidth}
+            NetID:
+            \vspace*{.5cm}%\dotfill
+            \vspace*{.5cm}%\dotfill
+            \vspace*{1mm}
+            \vspace{3ex} 
+        \end{minipage}
+    }
+\end{minipage}
+\hspace*{\fill}
+\bigskip
+
+This is a 20-minute quiz.  There are problems on the front and on the back.
+\emph{Calculators are neither necessary nor allowed.}
+% end of header group
+\egroup
+    
+\bigskip
+
+
+\begin{question}{MC-final}
+    On which of these dates is the final exam?
+    \begin{choices}
+        \correctchoice{Tuesday, December 18}% correct
+        \wrongchoice{Wednesday, December 19}% calculus exams
+        \wrongchoice{Monday, December 17}% review session
+        \wrongchoice{Thursday, December 20}% commencement
+        \wrongchoice{Friday, December 14}% last day of class
+    \end{choices}
+\end{question}
+
+
+\begin{questionmult}{MC-cheating}
+    Which of these are examples of academic dishonesty?
+    \begin{choices}
+        \correctchoice{Copying the homework of another student without collaboration and citation}
+        \correctchoice{Falsifying documents to justify makeup exams}
+        \correctchoice{Placing an ad on craiglist seeking someone to take your exam}
+        \correctchoice{Asking homework questions on Yahoo! Answers and using answers found there as your own work}
+    \end{choices}
+\end{questionmult}
+
+\noindent\emph{Identify each of the following statements as true or false.}
+
+\shufflegroup{TF}
+\insertgroup{TF}
+
+\clearpage
+
+\begin{question}{FR-why}
+    Why are you taking this course?  What would you like to learn?
+    \AMCOpen{lines=6,dots=false,answer={%
+        }
+    }{
+        \wrongchoice[0]{0}\scoring{0}
+        \wrongchoice[1]{1}\scoring{1}
+        \correctchoice[2]{2}\scoring{2}
+    }    
+\end{question}
+
+\begin{question}{FR-map}
+    Draw a map of your home town, and indicate on the map where you live.
+    \AMCOpen{lines=7,dots=false,answer={%
+        }
+    }{
+        \wrongchoice[0]{0}\scoring{0}
+        \wrongchoice[1]{1}\scoring{1}
+        \wrongchoice[2]{2}\scoring{2}
+        \correctchoice[3]{3}\scoring{3}
+    }    
+\end{question}
+
+    
+}% end of \onecopy group
+\end{document}
+{% endraw %}   
+%</questions>
