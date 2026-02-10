@@ -1,6 +1,9 @@
 # cookiecutter-amcquiz
 Cookiecutter for an auto-multiple-choice quiz maintained as an l3build module
 
+**This repository is archived.** The cookiecutter has been merged into [`cookiecutter-coursedocs`](https://github.com/leingang/cookiecutter-coursedocs)
+
+
 # Configuration (cookiecutter.json)
 
 This template exposes a small set of top-level keys in `cookiecutter.json` which control how a new quiz/project is generated. Below is a short explanation of each key and what the generated project expects.
